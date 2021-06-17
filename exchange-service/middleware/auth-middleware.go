@@ -17,13 +17,13 @@ type SignedDetails struct {
 	jwt.StandardClaims
 }
 
-func ValdateIncomingToken(token string) (string, error) {
+func ValdateIncomingToken(token string) (string, string) {
 	claims, err := ValidateToken(token)
 	if err != "" {
 		return "", err
 	}
 
-	return claims.Uid, nil
+	return claims.Uid, ""
 }
 
 var SECRET_KEY string = os.Getenv("SECRET_KEY")
