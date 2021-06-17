@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/alpacahq/alpaca-trade-api-go/common"
 	"github.com/gorilla/mux"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/exchange-service/helper"
+	"github.com/vikjdk7/Algotrading-GoLang-Rest/exchange-service/middleware"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/exchange-service/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -20,6 +22,25 @@ import (
 
 func getExchanges(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+	fmt.Println(token)
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, err := middleware.ValdateIncomingToken(token)
+	if err != nil {
+		customError.S = err
+		helper.GetError(&customError, w)
+		return
+	}
+	fmt.Println(userId)
 
 	// we created Book array
 	var exchanges []models.Exchange
