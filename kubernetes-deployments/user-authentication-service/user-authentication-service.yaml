@@ -1,0 +1,38 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-authentication-service-app
+  namespace: hedgina
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-authentication-service
+  template:
+    metadata:
+      labels:
+        app: user-authentication-service
+    spec:
+      containers:
+      - name: user-authentication-service
+        image: hedgina/user-authentication-service:latest
+        imagePullPolicy: Always
+        resources: {}
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-authentication-service
+  namespace: hedgina
+spec:
+  clusterIP: None
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: user-authentication-service

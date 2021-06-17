@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hedgina-api
+  namespace: hedgina
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /ExchangeService/api/v1/exchanges
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-exchange-service
+            port:
+              number: 443
+      - path: /UserService/api/v1/
+        pathType: Prefix
+        backend:
+          service:
+            name: user-authentication-service
+            port:
+              number: 443
