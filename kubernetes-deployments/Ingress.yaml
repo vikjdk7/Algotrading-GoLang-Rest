@@ -26,3 +26,10 @@ spec:
             name: user-authentication-service
             port:
               number: 443
+      - path: /StrategyService/api/v1/strategies
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-strategy-service
+            port:
+              number: 443

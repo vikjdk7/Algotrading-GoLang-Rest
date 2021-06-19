@@ -339,6 +339,7 @@ func updateExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	exchange.ID = id
 	eventData := models.EventHistory{
 		OperationType: "update",
 		Timestamp:     time.Now().Format(time.RFC3339),
@@ -355,7 +356,6 @@ func updateExchange(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(errEventHistory, w)
 		return
 	}
-	exchange.ID = id
 	json.NewEncoder(w).Encode(decoded)
 }
 

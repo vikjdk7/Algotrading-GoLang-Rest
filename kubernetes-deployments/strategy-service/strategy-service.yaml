@@ -1,0 +1,38 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rest-strategy-service-app
+  namespace: hedgina
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rest-strategy-service
+  template:
+    metadata:
+      labels:
+        app: rest-strategy-service
+    spec:
+      containers:
+      - name: rest-strategy-service
+        image: hedgina/rest-strategy-service:latest
+        imagePullPolicy: Always
+        resources: {}
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-strategy-service
+  namespace: hedgina
+spec:
+  clusterIP: None
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: rest-strategy-service
