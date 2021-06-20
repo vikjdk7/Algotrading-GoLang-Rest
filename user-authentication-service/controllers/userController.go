@@ -250,7 +250,7 @@ func ForgotPasswordReset() gin.HandlerFunc {
 		err := userCollection.FindOne(ctx, bson.M{"email": forgotPasswordReset.Email}).Decode(&foundUser)
 		defer cancel()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "login or passowrd is incorrect"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "incorrect email"})
 			return
 		}
 
@@ -286,11 +286,12 @@ func ForgotPasswordReset() gin.HandlerFunc {
 		opt := options.UpdateOptions{
 			Upsert: &upsert,
 		}
-		_, err = userCollection.UpdateOne(
+
+		_, err = otpCollection.UpdateOne(
 			ctx,
 			bson.M{"email": forgotPasswordReset.Email},
-			bson.D{
-				{"$set", bson.M{"is_checked": true}},
+			bson.M{
+				"$set": bson.M{"is_checked": true},
 			},
 			&opt,
 		)
