@@ -26,3 +26,25 @@ type ResetPassword struct {
 	Password    *string `json:"Password" validate:"required,min=6"`
 	NewPassword *string `json:"new_password" validate:"required,min=6"`
 }
+
+type ForgotPasswordEmail struct {
+	Email *string `json:"email" validate:"email,required"`
+}
+
+type ForgotPasswordEmailResponse struct {
+	EmailSent bool `json:"email_sent"`
+}
+
+type ForgotPasswordReset struct {
+	Email       *string `json:"email" validate:"email,required"`
+	Otp         *string `json:"otp" validate:"required"`
+	NewPassword *string `json:"new_password" validate:"required,min=6"`
+}
+
+type Otp struct {
+	Id        primitive.ObjectID `bson:"_id"`
+	Email     string             `json:"email" bson:"email"`
+	IsChecked bool               `json:"is_checked" bson:"is_checked"`
+	Otp       string             `json:"otp" bson:"otp"`
+	UpdatedAt time.Time          `json:"updated_at" bson:"updated_at"`
+}

@@ -19,10 +19,12 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
+var otpCollection *mongo.Collection = database.OpenCollection(database.Client, "otp")
 var validate = validator.New()
 
 //HashPassword is used to encrypt the password before it is stored in the DB
@@ -183,5 +185,116 @@ func ResetPassword() gin.HandlerFunc {
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
 		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
 		c.JSON(http.StatusOK, foundUser)
+	}
+}
+
+func ForgotPasswordEmailSend() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var forgotPasswordEmail models.ForgotPasswordEmail
+
+		if err := c.BindJSON(&forgotPasswordEmail); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		validationErr := validate.Struct(forgotPasswordEmail)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		count, err := userCollection.CountDocuments(ctx, bson.M{"email": forgotPasswordEmail.Email})
+		defer cancel()
+		if err != nil {
+			log.Panic(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the email"})
+			return
+		}
+
+		if count < 1 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid Email. The email does not exist"})
+			return
+		}
+
+		otp := helper.GenerateOtp()
+
+		helper.SaveOtp(otp, *forgotPasswordEmail.Email)
+		helper.SendEmail(otp, *forgotPasswordEmail.Email)
+
+		response := models.ForgotPasswordEmailResponse{
+			EmailSent: true,
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+func ForgotPasswordReset() gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+		var forgotPasswordReset models.ForgotPasswordReset
+		var foundUser models.User
+
+		if err := c.BindJSON(&forgotPasswordReset); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(forgotPasswordReset)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		err := userCollection.FindOne(ctx, bson.M{"email": forgotPasswordReset.Email}).Decode(&foundUser)
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "login or passowrd is incorrect"})
+			return
+		}
+
+		var foundOtp models.Otp
+
+		err = otpCollection.FindOne(ctx, bson.M{"email": foundUser.Email}).Decode(&foundOtp)
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No Otp found for this email"})
+			return
+		}
+		if foundOtp.Otp != *forgotPasswordReset.Otp {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid OTP"})
+			return
+		}
+		if foundOtp.IsChecked == true {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "OTP has already been used"})
+			return
+		}
+		if time.Now().Sub(foundOtp.UpdatedAt).Minutes() > 5 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "OTP has expired"})
+			return
+		}
+
+		new_password := HashPassword(*forgotPasswordReset.NewPassword)
+		foundUser.Password = &new_password
+
+		helper.UpdatePassword(foundUser.User_id, new_password)
+		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+
+		upsert := true
+		opt := options.UpdateOptions{
+			Upsert: &upsert,
+		}
+		_, err = userCollection.UpdateOne(
+			ctx,
+			bson.M{"email": forgotPasswordReset.Email},
+			bson.D{
+				{"$set", bson.M{"is_checked": true}},
+			},
+			&opt,
+		)
+		c.JSON(http.StatusOK, foundUser)
+
 	}
 }

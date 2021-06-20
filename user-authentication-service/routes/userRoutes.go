@@ -11,4 +11,6 @@ func UserRoutes(incomingRoutes *gin.Engine) {
 	incomingRoutes.POST("/UserService/api/v1/signup", controller.SignUp())
 	incomingRoutes.POST("/UserService/api/v1/login", controller.Login())
 	incomingRoutes.POST("/UserService/api/v1/resetpassword", controller.ResetPassword())
+	incomingRoutes.POST("/UserService/api/v1/forgotpasswordemail", controller.ForgotPasswordEmailSend())
+	incomingRoutes.POST("/UserService/api/v1/forgotpasswordreset", controller.ForgotPasswordReset())
 }
