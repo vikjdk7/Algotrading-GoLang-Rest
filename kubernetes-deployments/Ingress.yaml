@@ -47,3 +47,10 @@ spec:
             name: rest-price-service
             port:
               number: 443
+      - path: /OrderService/api/v1/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-order-service
+            port:
+              number: 443

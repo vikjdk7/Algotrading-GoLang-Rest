@@ -1,0 +1,38 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rest-order-service-app
+  namespace: hedgina
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rest-order-service
+  template:
+    metadata:
+      labels:
+        app: rest-order-service
+    spec:
+      containers:
+      - name: rest-order-service
+        image: hedgina/rest-order-service:latest
+        imagePullPolicy: Always
+        resources: {}
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-order-service
+  namespace: hedgina
+spec:
+  clusterIP: None
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: rest-order-service

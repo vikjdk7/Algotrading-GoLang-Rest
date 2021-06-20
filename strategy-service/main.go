@@ -203,7 +203,8 @@ func getStrategies(w http.ResponseWriter, r *http.Request) {
 		// & character returns the memory address of the following variable.
 		err := cur.Decode(&strategy) // decode similar to deserialize process.
 		if err != nil {
-			log.Fatal(err)
+			helper.GetError(err, w)
+			return
 		}
 
 		// add item our array
@@ -211,7 +212,8 @@ func getStrategies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := cur.Err(); err != nil {
-		log.Fatal(err)
+		helper.GetError(err, w)
+		return
 	}
 
 	json.NewEncoder(w).Encode(strategies)
