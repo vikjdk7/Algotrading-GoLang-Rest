@@ -49,7 +49,7 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 	return check, msg
 }
 
-//CreateUser is the api used to tget a single user
+//CreateUser is the api used to get a single user
 func SignUp() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -111,7 +111,7 @@ func SignUp() gin.HandlerFunc {
 	}
 }
 
-//Login is the api used to tget a single user
+//Login is the api used to get a single user
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -143,5 +143,45 @@ func Login() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, foundUser)
 
+	}
+}
+
+func ResetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+		var resetReq models.ResetPassword
+		var foundUser models.User
+
+		if err := c.BindJSON(&resetReq); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(resetReq)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		err := userCollection.FindOne(ctx, bson.M{"email": resetReq.Email}).Decode(&foundUser)
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "user with email not found"})
+			return
+		}
+		passwordIsValid, msg := VerifyPassword(*resetReq.Password, *foundUser.Password)
+		defer cancel()
+		if passwordIsValid != true {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+		new_password := HashPassword(*resetReq.NewPassword)
+		foundUser.Password = &new_password
+
+		helper.UpdatePassword(foundUser.User_id, new_password)
+		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+		c.JSON(http.StatusOK, foundUser)
 	}
 }

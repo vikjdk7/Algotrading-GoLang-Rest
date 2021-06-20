@@ -10,4 +10,5 @@ import (
 func UserRoutes(incomingRoutes *gin.Engine) {
 	incomingRoutes.POST("/UserService/api/v1/signup", controller.SignUp())
 	incomingRoutes.POST("/UserService/api/v1/login", controller.Login())
+	incomingRoutes.POST("/UserService/api/v1/resetpassword", controller.ResetPassword())
 }
