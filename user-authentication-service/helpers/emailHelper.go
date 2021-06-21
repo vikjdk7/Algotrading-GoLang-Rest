@@ -23,7 +23,7 @@ func SendEmail(otp string, email string) {
 	m.SetBody("text/plain", "One Time Password: "+otp)
 
 	// Settings for SMTP server
-	d := gomail.NewDialer("smtp.gmail.com", 587, "neha190495@gmail.com", "fzhnpnkrlzksefti")
+	d := gomail.NewDialer("smtp.gmail.com", 587, "vikjdk7@gmail.com", "pspdumazkddtzyop")
 	d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	// Now send E-Mail
 	if err := d.DialAndSend(m); err != nil {
