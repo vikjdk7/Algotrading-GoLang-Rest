@@ -8,6 +8,7 @@ import (
 
 //UserRoutes function
 func UserRoutes(incomingRoutes *gin.Engine) {
+	incomingRoutes.POST("/UserService/api/v1/signupemail", controller.SignUpEmailSend())
 	incomingRoutes.POST("/UserService/api/v1/signup", controller.SignUp())
 	incomingRoutes.POST("/UserService/api/v1/login", controller.Login())
 	incomingRoutes.POST("/UserService/api/v1/resetpassword", controller.ResetPassword())

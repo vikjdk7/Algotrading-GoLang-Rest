@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 
 	"net/http"
 	"time"
@@ -51,24 +52,22 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 	return check, msg
 }
 
-//CreateUser is the api used to get a single user
-func SignUp() gin.HandlerFunc {
+func SignUpEmailSend() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
-		var user models.User
+		var signUpEmail models.SignUpEmail
 
-		if err := c.BindJSON(&user); err != nil {
+		if err := c.BindJSON(&signUpEmail); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		validationErr := validate.Struct(user)
+		validationErr := validate.Struct(signUpEmail)
 		if validationErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
 
-		count, err := userCollection.CountDocuments(ctx, bson.M{"email": user.Email})
+		count, err := userCollection.CountDocuments(ctx, bson.M{"email": signUpEmail.Email})
 		defer cancel()
 		if err != nil {
 			log.Panic(err)
@@ -76,10 +75,53 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 
-		password := HashPassword(*user.Password)
+		if count > 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "An account with this email already exists"})
+			return
+		}
+
+		otp := strconv.FormatInt(helper.GenerateOtp(), 10)
+
+		helper.SaveOtp(otp, *signUpEmail.Email, "registration")
+		helper.SendSignUpEmail(otp, *signUpEmail.Email, *signUpEmail.First_name, *signUpEmail.Last_name)
+
+		response := models.EmailResponse{
+			EmailSent: true,
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+//CreateUser is the api used to get a single user
+func SignUp() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var userSignUp models.UserSignUp
+		var user models.User
+
+		if err := c.BindJSON(&userSignUp); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(userSignUp)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		count, err := userCollection.CountDocuments(ctx, bson.M{"email": userSignUp.Email})
+		defer cancel()
+		if err != nil {
+			log.Panic(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the email"})
+			return
+		}
+
+		password := HashPassword(*userSignUp.Password)
 		user.Password = &password
 
-		count, err = userCollection.CountDocuments(ctx, bson.M{"phone": user.Phone})
+		count, err = userCollection.CountDocuments(ctx, bson.M{"phone": userSignUp.Phone})
 		defer cancel()
 		if err != nil {
 			log.Panic(err)
@@ -91,7 +133,31 @@ func SignUp() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "this email or phone number already exists"})
 			return
 		}
+		var foundOtp models.Otp
+		err = otpCollection.FindOne(ctx, bson.M{"email": userSignUp.Email, "process": "registration"}).Decode(&foundOtp)
+		defer cancel()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No Otp found for this email"})
+			return
+		}
 
+		if foundOtp.Otp != *userSignUp.Otp {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid OTP"})
+			return
+		}
+		if foundOtp.IsChecked == true {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "OTP has already been used"})
+			return
+		}
+		if time.Now().Sub(foundOtp.UpdatedAt).Minutes() > 10 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "OTP has expired"})
+			return
+		}
+
+		user.First_name = userSignUp.First_name
+		user.Last_name = userSignUp.Last_name
+		user.Phone = userSignUp.Phone
+		user.Email = userSignUp.Email
 		user.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.ID = primitive.NewObjectID()
@@ -107,6 +173,20 @@ func SignUp() gin.HandlerFunc {
 			return
 		}
 		defer cancel()
+
+		upsert := true
+		opt := options.UpdateOptions{
+			Upsert: &upsert,
+		}
+
+		_, err = otpCollection.UpdateOne(
+			ctx,
+			bson.M{"email": userSignUp.Email, "process": "registration"},
+			bson.M{
+				"$set": bson.M{"is_checked": true},
+			},
+			&opt,
+		)
 
 		c.JSON(http.StatusOK, resultInsertionNumber)
 
@@ -216,12 +296,12 @@ func ForgotPasswordEmailSend() gin.HandlerFunc {
 			return
 		}
 
-		otp := helper.GenerateOtp()
+		otp := strconv.FormatInt(helper.GenerateOtp(), 10)
 
-		helper.SaveOtp(otp, *forgotPasswordEmail.Email)
-		helper.SendEmail(otp, *forgotPasswordEmail.Email)
+		helper.SaveOtp(otp, *forgotPasswordEmail.Email, "forgot-password")
+		helper.SendForgotPasswordEmail(otp, *forgotPasswordEmail.Email)
 
-		response := models.ForgotPasswordEmailResponse{
+		response := models.EmailResponse{
 			EmailSent: true,
 		}
 		c.JSON(http.StatusOK, response)
@@ -256,7 +336,7 @@ func ForgotPasswordReset() gin.HandlerFunc {
 
 		var foundOtp models.Otp
 
-		err = otpCollection.FindOne(ctx, bson.M{"email": foundUser.Email}).Decode(&foundOtp)
+		err = otpCollection.FindOne(ctx, bson.M{"email": forgotPasswordReset.Email, "process": "forgot-password"}).Decode(&foundOtp)
 		defer cancel()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No Otp found for this email"})
@@ -289,7 +369,7 @@ func ForgotPasswordReset() gin.HandlerFunc {
 
 		_, err = otpCollection.UpdateOne(
 			ctx,
-			bson.M{"email": forgotPasswordReset.Email},
+			bson.M{"email": forgotPasswordReset.Email, "process": "forgot-password"},
 			bson.M{
 				"$set": bson.M{"is_checked": true},
 			},

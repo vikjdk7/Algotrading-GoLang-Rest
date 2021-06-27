@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"log"
+	"math/big"
 	"time"
 
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/database"
@@ -15,12 +16,16 @@ import (
 
 var otpCollection *mongo.Collection = database.OpenCollection(database.Client, "otp")
 
-func GenerateOtp() string {
-	p, _ := rand.Prime(rand.Reader, 20)
-	return p.String()
+func GenerateOtp() int64 {
+	max := big.NewInt(999999)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return n.Int64()
 }
 
-func SaveOtp(otp string, email string) {
+func SaveOtp(otp string, email string, process string) {
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 
 	var updateObj primitive.D
@@ -29,9 +34,10 @@ func SaveOtp(otp string, email string) {
 	updatedAt, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 	updateObj = append(updateObj, bson.E{"updated_at", updatedAt})
 	updateObj = append(updateObj, bson.E{"is_checked", false})
+	updateObj = append(updateObj, bson.E{"process", process})
 
 	upsert := true
-	filter := bson.M{"email": email}
+	filter := bson.M{"email": email, "process": process}
 
 	opt := options.UpdateOptions{
 		Upsert: &upsert,

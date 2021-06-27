@@ -27,11 +27,27 @@ type ResetPassword struct {
 	NewPassword *string `json:"new_password" validate:"required,min=6"`
 }
 
-type ForgotPasswordEmail struct {
-	Email *string `json:"email" validate:"email,required"`
+type UserSignUp struct {
+	First_name *string `json:"first_name" validate:"required,min=2,max=100"`
+	Last_name  *string `json:"last_name" validate:"required,min=2,max=100"`
+	Password   *string `json:"Password" validate:"required,min=6""`
+	Email      *string `json:"email" validate:"email,required"`
+	Phone      *string `json:"phone" validate:"required"`
+	Otp        *string `json:"otp" validate:"required"`
 }
 
-type ForgotPasswordEmailResponse struct {
+type SignUpEmail struct {
+	First_name *string `json:"first_name" validate:"required,min=2,max=100"`
+	Last_name  *string `json:"last_name" validate:"required,min=2,max=100"`
+	Email      *string `json:"email" validate:"email,required"`
+}
+
+type ForgotPasswordEmail struct {
+	Email   *string `json:"email" validate:"email,required"`
+	Process *string `json:"process" validate:"required,eq=forgot-password"`
+}
+
+type EmailResponse struct {
 	EmailSent bool `json:"email_sent"`
 }
 
@@ -47,4 +63,5 @@ type Otp struct {
 	IsChecked bool               `json:"is_checked" bson:"is_checked"`
 	Otp       string             `json:"otp" bson:"otp"`
 	UpdatedAt time.Time          `json:"updated_at" bson:"updated_at"`
+	Process   string             `json:"process" bson:"process"`
 }
