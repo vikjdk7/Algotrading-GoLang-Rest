@@ -53,13 +53,13 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		exchangeId, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
-		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId})
+		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true})
 		if err != nil {
 			helper.GetError(err, w)
 			return
 		}
 		if exchangeCount == 0 {
-			customError.S = fmt.Sprintf("Could not find exchange with id %s", strategy.SelectedExchange)
+			customError.S = fmt.Sprintf("Could not find an active exchange with id %s", strategy.SelectedExchange)
 			helper.GetError(&customError, w)
 			return
 		}
@@ -329,13 +329,13 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 	}
 	if strategy.SelectedExchange != "" {
 		exchangeId, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
-		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId})
+		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true})
 		if err != nil {
 			helper.GetError(err, w)
 			return
 		}
 		if exchangeCount == 0 {
-			customError.S = fmt.Sprintf("Could not find exchange with id %s", strategy.SelectedExchange)
+			customError.S = fmt.Sprintf("Could not find an active exchange with id %s", strategy.SelectedExchange)
 			helper.GetError(&customError, w)
 			return
 		}
