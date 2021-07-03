@@ -13,7 +13,6 @@ type User struct {
 	Last_name     *string            `json:"last_name" validate:"required,min=2,max=100"`
 	Password      *string            `json:"Password" validate:"required,min=6""`
 	Email         *string            `json:"email" validate:"email,required"`
-	Phone         *string            `json:"phone" validate:"required"`
 	Token         *string            `json:"token"`
 	Refresh_token *string            `json:"refresh_token"`
 	Created_at    time.Time          `json:"created_at"`
@@ -32,7 +31,6 @@ type UserSignUp struct {
 	Last_name  *string `json:"last_name" validate:"required,min=2,max=100"`
 	Password   *string `json:"Password" validate:"required,min=6""`
 	Email      *string `json:"email" validate:"email,required"`
-	Phone      *string `json:"phone" validate:"required"`
 	Otp        *string `json:"otp" validate:"required"`
 }
 
@@ -43,8 +41,7 @@ type SignUpEmail struct {
 }
 
 type ForgotPasswordEmail struct {
-	Email   *string `json:"email" validate:"email,required"`
-	Process *string `json:"process" validate:"required,eq=forgot-password"`
+	Email *string `json:"email" validate:"email,required"`
 }
 
 type EmailResponse struct {

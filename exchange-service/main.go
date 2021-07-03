@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/alpacahq/alpaca-trade-api-go/alpaca"
@@ -42,11 +43,24 @@ func getExchanges(w http.ResponseWriter, r *http.Request) {
 	}
 	//fmt.Println(userId)
 
-	// we created Exchange array
+	query := bson.M{}
+	active := r.URL.Query().Get("active")
+	active_bool, err := strconv.ParseBool(active)
+	if err != nil {
+		customError.S = "Invalid Query Paramter type active. Allowed values: [true, false]"
+		helper.GetError(&customError, w)
+		return
+	}
+	if active != "" {
+		query["active"] = active_bool
+	}
+	query["user_id"] = userId
+
+	// we create Exchange array
 	var exchanges []models.Exchange
 
 	// bson.M{},  we passed empty filter. So we want to get all data.
-	cur, err := exchangeCollection.Find(context.TODO(), bson.M{"user_id": userId})
+	cur, err := exchangeCollection.Find(context.TODO(), query)
 
 	if err != nil {
 		helper.GetError(err, w)
@@ -163,6 +177,10 @@ func createExchange(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(&customError, w)
 		return
 	}
+	if exchange.Active == nil {
+		f := true
+		exchange.Active = &f
+	}
 
 	exchange.UserId = userId
 
@@ -260,7 +278,7 @@ func updateExchange(w http.ResponseWriter, r *http.Request) {
 	var dataResultReadExchange models.Exchange
 	// decode and write to data
 	if err := resultReadExchange.Decode(&dataResultReadExchange); err != nil {
-		customError.S = fmt.Sprintf("Could not find Exchange with Object Id %s: %v", id, err)
+		customError.S = fmt.Sprintf("Could not find Exchange with Id %s: %v", id, err)
 		helper.GetError(&customError, w)
 		return
 	}
@@ -324,6 +342,11 @@ func updateExchange(w http.ResponseWriter, r *http.Request) {
 			newValues.ApiSecret = exchange.ApiSecret
 		}
 
+	}
+	if exchange.Active != nil {
+		update["active"] = exchange.Active
+		oldValues.Active = dataResultReadExchange.Active
+		newValues.Active = exchange.Active
 	}
 	filter := bson.M{"_id": id}
 	//fmt.Println(update)
@@ -393,7 +416,7 @@ func deleteExchange(w http.ResponseWriter, r *http.Request) {
 	var dataResultReadExchange models.Exchange
 	// decode and write to data
 	if err := resultReadExchange.Decode(&dataResultReadExchange); err != nil {
-		customError.S = fmt.Sprintf("Could not find Exchange with Object Id %s: %v", id, err)
+		customError.S = fmt.Sprintf("Could not find Exchange with Id %s: %v", id, err)
 		helper.GetError(&customError, w)
 		return
 	}

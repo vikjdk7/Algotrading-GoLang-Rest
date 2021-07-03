@@ -15,6 +15,7 @@ type Exchange struct {
 	UserId           string             `json:"user_id" bson:"user_id"`
 	ApiKey           string             `json:"api_key" bson:"api_key"`
 	ApiSecret        string             `json:"api_secret" bson:"api_secret"`
+	Active           *bool              `json:"active" bson:"active"`
 }
 
 type EventHistory struct {

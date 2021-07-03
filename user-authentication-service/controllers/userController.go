@@ -121,16 +121,8 @@ func SignUp() gin.HandlerFunc {
 		password := HashPassword(*userSignUp.Password)
 		user.Password = &password
 
-		count, err = userCollection.CountDocuments(ctx, bson.M{"phone": userSignUp.Phone})
-		defer cancel()
-		if err != nil {
-			log.Panic(err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the phone number"})
-			return
-		}
-
 		if count > 0 {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "this email or phone number already exists"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "this email already exists"})
 			return
 		}
 		var foundOtp models.Otp
@@ -156,7 +148,6 @@ func SignUp() gin.HandlerFunc {
 
 		user.First_name = userSignUp.First_name
 		user.Last_name = userSignUp.Last_name
-		user.Phone = userSignUp.Phone
 		user.Email = userSignUp.Email
 		user.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
