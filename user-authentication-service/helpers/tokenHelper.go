@@ -92,7 +92,7 @@ func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 }
 
 //UpdateAllTokens renews the user tokens when they login
-func UpdateAllTokens(signedToken string, signedRefreshToken string, userId string) {
+func UpdateAllTokens(signedToken string, signedRefreshToken string, userId string, Updated_at time.Time) {
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 
 	var updateObj primitive.D
@@ -100,7 +100,7 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userId strin
 	updateObj = append(updateObj, bson.E{"token", signedToken})
 	updateObj = append(updateObj, bson.E{"refresh_token", signedRefreshToken})
 
-	Updated_at, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+	//Updated_at, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 	updateObj = append(updateObj, bson.E{"updated_at", Updated_at})
 
 	upsert := true

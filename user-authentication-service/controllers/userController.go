@@ -212,7 +212,11 @@ func Login() gin.HandlerFunc {
 
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
 
-		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+		currentTimestamp, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id, currentTimestamp)
+		foundUser.Token = &token
+		foundUser.Refresh_token = &refreshToken
+		foundUser.Updated_at = currentTimestamp
 
 		c.JSON(http.StatusOK, foundUser)
 
@@ -253,8 +257,12 @@ func ResetPassword() gin.HandlerFunc {
 		foundUser.Password = &new_password
 
 		helper.UpdatePassword(foundUser.User_id, new_password)
+		currentTimestamp, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
-		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id, currentTimestamp)
+		foundUser.Updated_at = currentTimestamp
+		foundUser.Token = &token
+		foundUser.Refresh_token = &refreshToken
 		c.JSON(http.StatusOK, foundUser)
 	}
 }
@@ -350,9 +358,13 @@ func ForgotPasswordReset() gin.HandlerFunc {
 		foundUser.Password = &new_password
 
 		helper.UpdatePassword(foundUser.User_id, new_password)
+		currentTimestamp, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, foundUser.User_id)
-		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id)
+		helper.UpdateAllTokens(token, refreshToken, foundUser.User_id, currentTimestamp)
 
+		foundUser.Updated_at = currentTimestamp
+		foundUser.Token = &token
+		foundUser.Refresh_token = &refreshToken
 		upsert := true
 		opt := options.UpdateOptions{
 			Upsert: &upsert,
