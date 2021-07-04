@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/alpacahq/alpaca-trade-api-go/alpaca"
+	"github.com/alpacahq/alpaca-trade-api-go/common"
 	"github.com/gorilla/mux"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/helper"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/middleware"
@@ -525,6 +528,68 @@ func deleteStrategy(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func getAccountInfo(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Content-Type", "application/json")
+	var customError models.ErrorString
+	var params = mux.Vars(r)
+	if params["id"] == "" {
+		customError.S = "Exchange Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	token := r.Header.Get("token")
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	// create model
+	var exchange models.Exchange
+	var accountinfo models.AccountInfo
+
+	id, err := primitive.ObjectIDFromHex(params["id"])
+	if err != nil {
+		customError.S = "Invalid Exchange Id. Cannot convert Exchange Id to Primitive Object Id."
+		helper.GetError(&customError, w)
+		return
+	}
+	err = exchangeCollection.FindOne(context.TODO(), bson.M{"_id": id, "user_id": userId}).Decode(&exchange)
+	if err != nil {
+		customError.S = "Invalid Exchange Id. Cannot find exchange for the user."
+		helper.GetError(&customError, w)
+		return
+	}
+
+	os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
+	os.Setenv(common.EnvApiSecretKey, exchange.ApiSecret)
+	if exchange.ExchangeType == "paper_trading" {
+		alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+	} else if exchange.ExchangeType == "live_trading" {
+		alpaca.SetBaseUrl("https://api.alpaca.markets")
+	}
+
+	alpacaClient := alpaca.NewClient(common.Credentials())
+
+	acct, err := alpacaClient.GetAccount()
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	accountinfo.Balance = acct.PortfolioValue.Add(acct.Cash)
+	accountinfo.MaxAmtStrategyUsage = acct.BuyingPower
+	accountinfo.MaxSafetyOrderPriceDeviation = "50"
+	accountinfo.AvailableBalance = 1.81
+	json.NewEncoder(w).Encode(accountinfo)
+}
+
 var strategyCollection *mongo.Collection
 var eventHistoryCollection *mongo.Collection
 var strategy_revisionsCollection *mongo.Collection
@@ -546,6 +611,11 @@ func main() {
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", getStrategy).Methods("GET")
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", updateStrategy).Methods("PUT")
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", deleteStrategy).Methods("DELETE")
+
+	//r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
+	//r.HandleFunc("/StrategyService/api/v1/deals", getDeals).Methods("GET")
+
+	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {

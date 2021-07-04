@@ -45,13 +45,13 @@ func getExchanges(w http.ResponseWriter, r *http.Request) {
 
 	query := bson.M{}
 	active := r.URL.Query().Get("active")
-	active_bool, err := strconv.ParseBool(active)
-	if err != nil {
-		customError.S = "Invalid Query Paramter type active. Allowed values: [true, false]"
-		helper.GetError(&customError, w)
-		return
-	}
 	if active != "" {
+		active_bool, err := strconv.ParseBool(active)
+		if err != nil {
+			customError.S = "Invalid Query Paramter type active. Allowed values: [true, false]"
+			helper.GetError(&customError, w)
+			return
+		}
 		query["active"] = active_bool
 	}
 	query["user_id"] = userId
