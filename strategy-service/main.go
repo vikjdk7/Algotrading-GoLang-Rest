@@ -528,6 +528,215 @@ func deleteStrategy(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func HasStock(list []*models.Stock, a string) bool {
+	for _, b := range list {
+		if b.StockName == a {
+			return true
+		}
+	}
+	return false
+}
+
+func createDeal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var dealRequest models.DealRequest
+
+	// we decode our body request params
+	_ = json.NewDecoder(r.Body).Decode(&dealRequest)
+
+	var customError models.ErrorString
+	token := r.Header.Get("token")
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	var strategy models.Strategy
+	if dealRequest.StrategyId == "" {
+		customError.S = "Strategy Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	strategyId, err := primitive.ObjectIDFromHex(dealRequest.StrategyId)
+	if err != nil {
+		customError.S = "Invalid Strategy Id. Cannot convert Strategy Id to Primitive Object Id."
+		helper.GetError(&customError, w)
+		return
+	}
+	err = strategyCollection.FindOne(context.TODO(), bson.M{"_id": strategyId, "user_id": userId}).Decode(&strategy)
+	if err != nil {
+		customError.S = "Invalid Strategy Id. Cannot find strategy for the user."
+		helper.GetError(&customError, w)
+		return
+	}
+
+	var insertDeal []interface{}
+	var insertDealHistory []interface{}
+	for _, v := range *dealRequest.Stock {
+
+		if !HasStock(strategy.Stock, v.StockName) {
+			customError.S = fmt.Sprintf("Invalid Asset %s. Asset not part of Strategy", v.StockName)
+			helper.GetError(&customError, w)
+			return
+		}
+		dealId := primitive.NewObjectID()
+		deal := bson.M{
+			"_id":                           dealId,
+			"strategy_id":                   dealRequest.StrategyId,
+			"user_id":                       userId,
+			"stock":                         v.StockName,
+			"status":                        "running",
+			"max_active_safety_trade_count": strategy.MaxActiveSafetyTradeCount,
+			"max_safety_trade_count":        strategy.MaxSafetyTradeCount,
+		}
+		insertDeal = append(insertDeal, deal)
+		dealHistory := bson.M{
+			"operation_type": "insert",
+			"timestamp":      time.Now().Format(time.RFC3339),
+			"db":             "hedgina_algobot",
+			"collection":     "deal",
+			"name":           strategy.StrategyName,
+			"user_id":        userId,
+			"deal_id":        dealId,
+			"new_value":      deal,
+		}
+		insertDealHistory = append(insertDealHistory, dealHistory)
+	}
+
+	insertManyResult, err := dealsCollection.InsertMany(context.TODO(), insertDeal)
+	if err != nil {
+		customError.S = "Could not create Deals."
+		helper.GetError(&customError, w)
+		return
+	}
+	fmt.Print("Inserted Deal ID's: ")
+	fmt.Println(insertManyResult.InsertedIDs)
+
+	insertManyDealHistoryResult, err := eventHistoryCollection.InsertMany(context.TODO(), insertDealHistory)
+	if err != nil {
+		customError.S = "Could not create Deals History."
+		helper.GetError(&customError, w)
+		return
+	}
+	fmt.Print("Inserted Deal History ID's: ")
+	fmt.Println(insertManyDealHistoryResult.InsertedIDs)
+
+	err = strategyCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": strategyId}, bson.M{"$set": bson.M{"status": "running"}}, options.FindOneAndUpdate().SetReturnDocument(1)).Decode(&strategy)
+	if err != nil {
+		customError.S = "Could not update Starategy Status."
+		helper.GetError(&customError, w)
+		return
+	}
+	strategyEventData := models.EventHistory{
+		OperationType: "update",
+		Timestamp:     time.Now().Format(time.RFC3339),
+		Db:            "hedgina_algobot",
+		Collection:    "strategy",
+		Name:          strategy.StrategyName,
+		UserId:        strategy.UserId,
+		StrategyId:    dealRequest.StrategyId,
+		OldValue: models.Strategy{
+			Status: strategy.Status,
+		},
+		NewValue: models.Strategy{
+			Status: "running",
+		},
+	}
+	_, errStrategyEventHistory := eventHistoryCollection.InsertOne(context.TODO(), strategyEventData)
+	if errStrategyEventHistory != nil {
+		customError.S = "Could not create strategy event history."
+		helper.GetError(&customError, w)
+		return
+	}
+
+	json.NewEncoder(w).Encode(insertManyResult.InsertedIDs)
+
+}
+
+func getDeals(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var customError models.ErrorString
+	var params = mux.Vars(r)
+
+	if params["id"] == "" {
+		customError.S = "Strategy Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	// create Deals array
+	var deals []models.Deal
+
+	query := bson.M{}
+	query["user_id"] = userId
+	query["strategy_id"] = params["id"]
+	status := r.URL.Query().Get("status")
+	if status != "" {
+		if status != "running" {
+			customError.S = "Invalid query paramter status. Allowed values: [running, completed]"
+			helper.GetError(&customError, w)
+			return
+		}
+		query["status"] = status
+	}
+
+	cur, err := dealsCollection.Find(context.TODO(), query)
+
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	// Close the cursor once finished
+	defer cur.Close(context.TODO())
+
+	for cur.Next(context.TODO()) {
+
+		// create a value into which the single document can be decoded
+		var deal models.Deal
+		// & character returns the memory address of the following variable.
+		err := cur.Decode(&deal) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+
+		// add item our array
+		deals = append(deals, deal)
+	}
+
+	if err := cur.Err(); err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	json.NewEncoder(w).Encode(deals)
+}
+
 func getAccountInfo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
@@ -612,8 +821,8 @@ func main() {
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", updateStrategy).Methods("PUT")
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", deleteStrategy).Methods("DELETE")
 
-	//r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
-	//r.HandleFunc("/StrategyService/api/v1/deals", getDeals).Methods("GET")
+	r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
+	r.HandleFunc("/StrategyService/api/v1/deals/{id}", getDeals).Methods("GET")
 
 	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 

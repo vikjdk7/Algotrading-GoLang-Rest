@@ -33,6 +33,20 @@ spec:
             name: rest-strategy-service
             port:
               number: 443
+      - path: /StrategyService/api/v1/deals
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-strategy-service
+            port:
+              number: 443
+      - path: /StrategyService/api/v1/accountinfo
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-strategy-service
+            port:
+              number: 443
       - path: /PriceService/api/v1/assets
         pathType: Prefix
         backend:

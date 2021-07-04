@@ -61,11 +61,15 @@ type StrategyRevision struct {
 type Deal struct {
 	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	StrategyId                string             `json:"strategy_id" bson:"strategy_id"`
-	Stock                     *Stock             `json:"stock" bson:"stock"`
+	Stock                     string             `json:"stock" bson:"stock"`
 	UserId                    string             `json:"user_id" bson:"user_id"`
 	Status                    string             `json:"status" bson:"status"`
 	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
 	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
+}
+type DealRequest struct {
+	StrategyId string   `json:"strategy_id" bson:"strategy_id"`
+	Stock      *[]Stock `json:"stock" bson:"stock"`
 }
 
 type EventHistory struct {
@@ -79,6 +83,19 @@ type EventHistory struct {
 	StrategyId    string             `json:"strategy_id" bson:"strategy_id"`
 	OldValue      Strategy           `json:"old_value" bson:"old_value"`
 	NewValue      Strategy           `json:"new_value" bson:"new_value"`
+}
+
+type DealEventHistory struct {
+	Id            primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	OperationType string             `json:"operation_type" bson:"operation_type"`
+	Timestamp     string             `json:"timestamp" bson:"timestamp"`
+	Db            string             `json:"db" bson:"db"`
+	Collection    string             `json:"collection" bson:"collection"`
+	Name          string             `json:"name" bson:"name"`
+	UserId        string             `json:"user_id" bson:"user_id"`
+	DealId        string             `json:"deal_id" bson:"deal_id"`
+	OldValue      Deal               `json:"old_value" bson:"old_value"`
+	NewValue      Deal               `json:"new_value" bson:"new_value"`
 }
 
 type AccountInfo struct {

@@ -40,7 +40,7 @@ func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection, *mong
 	strategyCollection := mongoDB.Collection("strategy")
 	eventHistoryCollection := mongoDB.Collection("eventhistory_strategy")
 	strategy_revisionsCollection := mongoDB.Collection("strategy_revisions")
-	dealsCollection := mongoDB.Collection("deals")
+	dealsCollection := mongoDB.Collection("deal")
 	exchangeCollection := mongoDB.Collection("exchange")
 	assetsCollection := mongoDB.Collection("assets")
 
