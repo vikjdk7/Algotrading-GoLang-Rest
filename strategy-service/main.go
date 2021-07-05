@@ -606,6 +606,7 @@ func createDeal(w http.ResponseWriter, r *http.Request) {
 			"name":           strategy.StrategyName,
 			"user_id":        userId,
 			"deal_id":        dealId,
+			"strategy_id":    dealRequest.StrategyId,
 			"new_value":      deal,
 		}
 		insertDealHistory = append(insertDealHistory, dealHistory)

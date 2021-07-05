@@ -1,7 +1,6 @@
 package models
 
 import (
-	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -11,26 +10,26 @@ type Stock struct {
 
 type Strategy struct {
 	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	StrategyName              string             `json:"strategy_name" bson:"strategy_name"`
-	SelectedExchange          string             `json:"selected_exchange" bson:"selected_exchange"`
-	StrategyType              string             `json:"strategy_type" bson:"strategy_type"`
-	StartOrderType            string             `json:"start_order_type" bson:"start_order_type"`
-	DealStartCondition        string             `json:"deal_start_condition" bson:"deal_start_condition"`
-	BaseOrderSize             float64            `json:"base_order_size" bson:"base_order_size"`
-	SafetyOrderSize           float64            `json:"safety_order_size" bson:"safety_order_size"`
-	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
-	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
-	PriceDevation             string             `json:"price_devation" bson:"price_devation"`
-	SafetyOrderVolumeScale    float64            `json:"safety_order_volume_scale" bson:"safety_order_volume_scale"`
-	SafetyOrderStepScale      float64            `json:"safety_order_step_scale" bson:"safety_order_step_scale"`
-	TakeProfit                string             `json:"take_profit" bson:"take_profit"`
-	TargetProfit              string             `json:"target_profit" bson:"target_profit"`
-	StopLossPercent           string             `json:"stop_loss_percent" bson:"stop_loss_percent"`
-	AllocateFundsToStrategy   string             `json:"allocate_funds_to_strategy" bson:"allocate_funds_to_strategy"`
-	UserId                    string             `json:"user_id" bson:"user_id"`
-	Version                   int64              `json:"version" bson:"version"`
-	Status                    string             `json:"status" bson:"status"`
-	Stock                     []*Stock           `json:"stock" bson:"stock"`
+	StrategyName              string             `json:"strategy_name,omitempty" bson:"strategy_name"`
+	SelectedExchange          string             `json:"selected_exchange,omitempty" bson:"selected_exchange"`
+	StrategyType              string             `json:"strategy_type,omitempty" bson:"strategy_type"`
+	StartOrderType            string             `json:"start_order_type,omitempty" bson:"start_order_type"`
+	DealStartCondition        string             `json:"deal_start_condition,omitempty" bson:"deal_start_condition"`
+	BaseOrderSize             float64            `json:"base_order_size,omitempty" bson:"base_order_size"`
+	SafetyOrderSize           float64            `json:"safety_order_size,omitempty" bson:"safety_order_size"`
+	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count,omitempty" bson:"max_safety_trade_count"`
+	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count,omitempty" bson:"max_active_safety_trade_count"`
+	PriceDevation             string             `json:"price_devation,omitempty" bson:"price_devation"`
+	SafetyOrderVolumeScale    float64            `json:"safety_order_volume_scale,omitempty" bson:"safety_order_volume_scale"`
+	SafetyOrderStepScale      float64            `json:"safety_order_step_scale,omitempty" bson:"safety_order_step_scale"`
+	TakeProfit                string             `json:"take_profit,omitempty" bson:"take_profit"`
+	TargetProfit              string             `json:"target_profit,omitempty" bson:"target_profit"`
+	StopLossPercent           string             `json:"stop_loss_percent,omitempty" bson:"stop_loss_percent"`
+	AllocateFundsToStrategy   string             `json:"allocate_funds_to_strategy,omitempty" bson:"allocate_funds_to_strategy"`
+	UserId                    string             `json:"user_id,omitempty" bson:"user_id"`
+	Version                   int64              `json:"version,omitempty" bson:"version"`
+	Status                    string             `json:"status,omitempty" bson:"status"`
+	Stock                     []*Stock           `json:"stock,omitempty" bson:"stock"`
 }
 
 type StrategyRevision struct {
@@ -60,12 +59,12 @@ type StrategyRevision struct {
 
 type Deal struct {
 	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	StrategyId                string             `json:"strategy_id" bson:"strategy_id"`
-	Stock                     string             `json:"stock" bson:"stock"`
-	UserId                    string             `json:"user_id" bson:"user_id"`
-	Status                    string             `json:"status" bson:"status"`
-	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
-	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
+	StrategyId                string             `json:"strategy_id,omitempty" bson:"strategy_id"`
+	Stock                     string             `json:"stock,omitempty" bson:"stock"`
+	UserId                    string             `json:"user_id,omitempty" bson:"user_id"`
+	Status                    string             `json:"status,omitempty" bson:"status"`
+	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count,omitempty" bson:"max_active_safety_trade_count"`
+	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count,omitempty" bson:"max_safety_trade_count"`
 }
 type DealRequest struct {
 	StrategyId string   `json:"strategy_id" bson:"strategy_id"`
@@ -99,11 +98,9 @@ type DealEventHistory struct {
 	NewValue      Deal               `json:"new_value" bson:"new_value"`
 }
 
-type AccountInfo struct {
-	Balance                      decimal.Decimal `json:"balance"`
-	MaxAmtStrategyUsage          decimal.Decimal `json:"max_amt_strategy_usage"`
-	MaxSafetyOrderPriceDeviation string          `json:"max_safety_order_price_deviation"`
-	AvailableBalance             float64         `json:"available_balance"`
+type EventHistoryResponse struct {
+	Strategy *[]EventHistory     `json:"strategies"`
+	Deal     *[]DealEventHistory `json:"deals"`
 }
 
 type Exchange struct {

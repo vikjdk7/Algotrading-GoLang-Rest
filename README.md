@@ -19,6 +19,9 @@ docker build -t rest-price-service .
 ```
 docker build -t rest-order-service .
 ```
+```
+docker build -t rest-eventhistory-service .
+```
 2. Tag the docker Image
 ```
 docker tag user-authentication-service:latest vikash99/user-authentication-service

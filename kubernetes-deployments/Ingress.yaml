@@ -68,3 +68,10 @@ spec:
             name: rest-order-service
             port:
               number: 443
+      - path: /EventHistoryService/api/v1
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-eventhistory-service
+            port:
+              number: 443
