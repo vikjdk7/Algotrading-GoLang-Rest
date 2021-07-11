@@ -49,20 +49,36 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 		customError.S = "Strategy Name cannot be empty"
 		helper.GetError(&customError, w)
 		return
+	} else {
+		strategyCount, err := strategyCollection.CountDocuments(context.TODO(), bson.M{"strategy_name": strategy.StrategyName, "user_id": userId})
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if strategyCount > 0 {
+			customError.S = fmt.Sprintf("Duplicate Name. Strategy with name %s already exixts", strategy.StrategyName)
+			helper.GetError(&customError, w)
+			return
+		}
 	}
 	if strategy.SelectedExchange == "" {
 		customError.S = "Selected Exchange cannot be empty"
 		helper.GetError(&customError, w)
 		return
 	} else {
+		if strategy.SelectedExchangeName == "" {
+			customError.S = "Selected Exchange Name cannot be empty"
+			helper.GetError(&customError, w)
+			return
+		}
 		exchangeId, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
-		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true})
+		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true, "exchange_name": strategy.SelectedExchangeName})
 		if err != nil {
 			helper.GetError(err, w)
 			return
 		}
 		if exchangeCount == 0 {
-			customError.S = fmt.Sprintf("Could not find an active exchange with id %s", strategy.SelectedExchange)
+			customError.S = fmt.Sprintf("Cannot find an active exchange for the user with id %s and Name %s", strategy.SelectedExchange, strategy.SelectedExchangeName)
 			helper.GetError(&customError, w)
 			return
 		}
@@ -187,7 +203,7 @@ func getStrategies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create Strategy array
-	var strategies []models.Strategy
+	strategies := make([]models.Strategy, 0)
 
 	cur, err := strategyCollection.Find(context.TODO(), bson.M{"user_id": userId})
 
@@ -326,19 +342,34 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 	update := bson.M{}
 
 	if strategy.StrategyName != "" {
+		strategyCount, err := strategyCollection.CountDocuments(context.TODO(), bson.M{"strategy_name": strategy.StrategyName, "user_id": userId})
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if strategyCount > 0 {
+			customError.S = fmt.Sprintf("Duplicate Name. Strategy with name %s already exixts", strategy.StrategyName)
+			helper.GetError(&customError, w)
+			return
+		}
 		update["strategy_name"] = strategy.StrategyName
 		oldValues.StrategyName = dataResultReadStrategy.StrategyName
 		newValues.StrategyName = strategy.StrategyName
 	}
 	if strategy.SelectedExchange != "" {
+		if strategy.SelectedExchangeName == "" {
+			customError.S = "Selected Exchange Name cannot be empty"
+			helper.GetError(&customError, w)
+			return
+		}
 		exchangeId, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
-		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true})
+		exchangeCount, err := exchangeCollection.CountDocuments(context.TODO(), bson.M{"_id": exchangeId, "user_id": userId, "active": true, "exchange_name": strategy.SelectedExchangeName})
 		if err != nil {
 			helper.GetError(err, w)
 			return
 		}
 		if exchangeCount == 0 {
-			customError.S = fmt.Sprintf("Could not find an active exchange with id %s", strategy.SelectedExchange)
+			customError.S = fmt.Sprintf("Cannot find an active exchange for the user with id %s and Name %s", strategy.SelectedExchange, strategy.SelectedExchangeName)
 			helper.GetError(&customError, w)
 			return
 		}
@@ -690,7 +721,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create Deals array
-	var deals []models.Deal
+	deals := make([]models.Deal, 0)
 
 	query := bson.M{}
 	query["user_id"] = userId

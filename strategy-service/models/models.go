@@ -13,6 +13,7 @@ type Strategy struct {
 	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	StrategyName              string             `json:"strategy_name" bson:"strategy_name"`
 	SelectedExchange          string             `json:"selected_exchange" bson:"selected_exchange"`
+	SelectedExchangeName      string             `json:"selected_exchange_name" bson:"selected_exchange_name"`
 	StrategyType              string             `json:"strategy_type" bson:"strategy_type"`
 	StartOrderType            string             `json:"start_order_type" bson:"start_order_type"`
 	DealStartCondition        string             `json:"deal_start_condition" bson:"deal_start_condition"`
