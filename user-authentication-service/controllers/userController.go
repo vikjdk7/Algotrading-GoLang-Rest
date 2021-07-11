@@ -15,6 +15,7 @@ import (
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/database"
 
 	helper "github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/helpers"
+	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/middleware"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/models"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -26,6 +27,7 @@ import (
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 var otpCollection *mongo.Collection = database.OpenCollection(database.Client, "otp")
+var userProfileCollection *mongo.Collection = database.OpenCollection(database.Client, "user_profile")
 var validate = validator.New()
 
 //HashPassword is used to encrypt the password before it is stored in the DB
@@ -159,6 +161,22 @@ func SignUp() gin.HandlerFunc {
 
 		resultInsertionNumber, insertErr := userCollection.InsertOne(ctx, user)
 		if insertErr != nil {
+			msg := fmt.Sprintf("User item was not created")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+		defer cancel()
+
+		var userProfile models.UserProfile
+		userProfile.ID = primitive.NewObjectID()
+		userProfile.User_id = &user.User_id
+		userProfile.First_name = user.First_name
+		userProfile.Last_name = user.Last_name
+		receiveNot := true
+		userProfile.ReceiveNotification = &receiveNot
+		userProfile.Email = user.Email
+		_, insertProfileErr := userProfileCollection.InsertOne(ctx, userProfile)
+		if insertProfileErr != nil {
 			msg := fmt.Sprintf("User item was not created")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
@@ -380,5 +398,157 @@ func ForgotPasswordReset() gin.HandlerFunc {
 		)
 		c.JSON(http.StatusOK, foundUser)
 
+	}
+}
+
+func UserProfile() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		//var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var userProfile models.UserProfile
+		var updateUserDB bool
+
+		if err := c.BindJSON(&userProfile); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(userProfile)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		if len(c.Request.Header["Token"]) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Token cannot be empty"})
+			return
+		}
+		token := c.Request.Header["Token"][0]
+
+		userId, errorMsg := middleware.ValdateIncomingToken(token)
+		if errorMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+			return
+		}
+
+		filter := bson.M{"user_id": userId}
+		updateUser := bson.M{}
+		updateProfile := bson.M{}
+
+		if *userProfile.First_name != "" {
+			updateUserDB = true
+			updateUser["first_name"] = userProfile.First_name
+			updateProfile["first_name"] = userProfile.First_name
+		}
+		if *userProfile.Last_name != "" {
+			updateUserDB = true
+			updateUser["last_name"] = userProfile.Last_name
+			updateProfile["last_name"] = userProfile.Last_name
+		}
+		if userProfile.Email != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Email cannot be changed"})
+			return
+		}
+		if *userProfile.CurrentAddress != "" {
+			updateProfile["current_address"] = userProfile.CurrentAddress
+		}
+		if *userProfile.BillingAddress != "" {
+			updateProfile["billing_address"] = userProfile.BillingAddress
+		}
+		if userProfile.SameBillingAdd != nil {
+			updateProfile["same_billing_add"] = userProfile.SameBillingAdd
+			if *userProfile.SameBillingAdd == true {
+				updateProfile["billing_address"] = userProfile.CurrentAddress
+			}
+		}
+		if userProfile.ReceiveNotification != nil {
+			updateProfile["receive_notification"] = userProfile.ReceiveNotification
+		}
+		if *userProfile.ProfilePicture != "" {
+			updateProfile["profile_picture"] = userProfile.ProfilePicture
+		}
+		if updateUserDB == true {
+			result := userCollection.FindOneAndUpdate(context.TODO(), filter, bson.M{"$set": updateUser})
+
+			// Decode result and write it to 'decoded'
+			var decoded models.User
+			err := result.Decode(&decoded)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "User cannot be updated"})
+				return
+			}
+
+		}
+		result := userProfileCollection.FindOneAndUpdate(context.TODO(), filter, bson.M{"$set": updateProfile}, options.FindOneAndUpdate().SetReturnDocument(1))
+
+		// Decode result and write it to 'decoded'
+		var decodedProfile models.UserProfile
+		err := result.Decode(&decodedProfile)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User Profile cannot be updated"})
+			return
+		}
+		c.JSON(http.StatusOK, decodedProfile)
+	}
+}
+
+func GetUserProfile() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		//var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var userProfile models.UserProfile
+
+		if len(c.Request.Header["Token"]) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Token cannot be empty"})
+			return
+		}
+		token := c.Request.Header["Token"][0]
+
+		userId, errorMsg := middleware.ValdateIncomingToken(token)
+		if errorMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+			return
+		}
+
+		err := userProfileCollection.FindOne(context.TODO(), bson.M{"user_id": userId}).Decode(&userProfile)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Could not find User Profile details for the user"})
+			return
+		}
+		c.JSON(http.StatusOK, userProfile)
+	}
+}
+
+func DeleteUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		//var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		//fmt.Println(c.Request)
+		if len(c.Request.Header["Token"]) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Token cannot be empty"})
+			return
+		}
+		token := c.Request.Header["Token"][0]
+
+		userId, errorMsg := middleware.ValdateIncomingToken(token)
+		if errorMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+			return
+		}
+
+		_, err := userProfileCollection.DeleteOne(context.TODO(), bson.M{"user_id": userId})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete UserProfile"})
+			return
+		}
+
+		deleteResult, err := userCollection.DeleteOne(context.TODO(), bson.M{"user_id": userId})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete User"})
+			return
+		}
+
+		if deleteResult.DeletedCount == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User Not Found"})
+			return
+		}
+		c.JSON(http.StatusNoContent, nil)
 	}
 }

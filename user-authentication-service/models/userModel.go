@@ -20,6 +20,19 @@ type User struct {
 	User_id       string             `json:"user_id"`
 }
 
+type UserProfile struct {
+	ID                  primitive.ObjectID `bson:"_id"`
+	User_id             *string            `json:"user_id" bson:"user_id"`
+	First_name          *string            `json:"first_name" validate:"min=2,max=100" bson:"first_name"`
+	Last_name           *string            `json:"last_name" validate:"min=2,max=100" bson:"last_name"`
+	Email               *string            `json:"email" bson:"email"`
+	CurrentAddress      *string            `json:"current_address" bson:"current_address"`
+	BillingAddress      *string            `json:"billing_address" bson:"billing_address"`
+	SameBillingAdd      *bool              `json:"same_billing_add" bson:"same_billing_add"`
+	ReceiveNotification *bool              `json:"receive_notification" bson:"receive_notification"`
+	ProfilePicture      *string            `json:"profile_picture" bson:"profile_picture"`
+}
+
 type ResetPassword struct {
 	Email       *string `json:"email" validate:"email,required"`
 	Password    *string `json:"Password" validate:"required,min=6"`

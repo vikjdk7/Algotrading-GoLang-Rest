@@ -35,3 +35,12 @@ func Authentication() gin.HandlerFunc {
 
 	}
 }
+
+func ValdateIncomingToken(token string) (string, string) {
+	claims, err := helper.ValidateToken(token)
+	if err != "" {
+		return "", err
+	}
+
+	return claims.Uid, ""
+}
