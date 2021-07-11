@@ -61,7 +61,7 @@ func getPositions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var positions []models.Position
+	positions := make([]models.Position, 0)
 
 	if exchange.SelectedExchange == "Alpaca" {
 		os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
@@ -105,7 +105,7 @@ func getAssets(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(&customError, w)
 		return
 	}
-	var assets []models.Asset
+	assets := make([]models.Asset, 0)
 
 	query := bson.M{}
 
