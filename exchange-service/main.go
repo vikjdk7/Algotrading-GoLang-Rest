@@ -57,7 +57,7 @@ func getExchanges(w http.ResponseWriter, r *http.Request) {
 	query["user_id"] = userId
 
 	// we create Exchange array
-	var exchanges []models.Exchange
+	exchanges := make([]models.Exchange, 0)
 
 	// bson.M{},  we passed empty filter. So we want to get all data.
 	cur, err := exchangeCollection.Find(context.TODO(), query)
