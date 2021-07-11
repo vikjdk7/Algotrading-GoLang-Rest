@@ -221,7 +221,7 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cursor.Close(context.Background())
-	var orders []models.Order
+	orders := make([]models.Order, 0)
 
 	for cursor.Next(context.Background()) {
 		var order models.Order
