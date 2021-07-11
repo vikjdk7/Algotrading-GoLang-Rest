@@ -43,7 +43,7 @@ func getEventHistoryStrategy(w http.ResponseWriter, r *http.Request) {
 	query["user_id"] = userId
 	query["collection"] = "strategy"
 
-	var eventHistories []models.EventHistory
+	eventHistories := make([]models.EventHistory, 0)
 
 	// bson.M{},  we passed empty filter. So we want to get all data.
 	cur, err := eventHistoryStrategyCollection.Find(context.TODO(), query)
@@ -72,7 +72,7 @@ func getEventHistoryStrategy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query["collection"] = "deal"
-	var eventHistoriesDeal []models.DealEventHistory
+	eventHistoriesDeal := make([]models.DealEventHistory, 0)
 
 	cur, err = eventHistoryStrategyCollection.Find(context.TODO(), query)
 
