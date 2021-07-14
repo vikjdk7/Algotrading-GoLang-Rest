@@ -150,6 +150,71 @@ func getAssets(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func getAssetPrice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		customError.S = "Asset symbol missing in query parameters"
+		helper.GetError(&customError, w)
+		return
+	}
+	exchangeId := r.URL.Query().Get("exchange-id")
+	if exchangeId == "" {
+		customError.S = "Exchange ID missing in query parameters"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	var exchange models.Exchange
+	id, _ := primitive.ObjectIDFromHex(exchangeId)
+
+	err := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": id, "user_id": userId}).Decode(&exchange)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
+	os.Setenv(common.EnvApiSecretKey, exchange.ApiSecret)
+	if exchange.ExchangeType == "paper_trading" {
+		alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+	} else if exchange.ExchangeType == "live_trading" {
+		alpaca.SetBaseUrl("https://api.alpaca.markets")
+	}
+	alpacaClient := alpaca.NewClient(common.Credentials())
+
+	latestQuote, err := alpacaClient.GetLatestQuote(symbol)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	response := models.PriceResponse{
+		CurrentPrice: latestQuote.AskPrice,
+	}
+
+	json.NewEncoder(w).Encode(response)
+
+}
+
 var exchangeCollection *mongo.Collection
 var assetsCollection *mongo.Collection
 var priceCollection *mongo.Collection
@@ -166,6 +231,8 @@ func main() {
 	// arrange our route
 	r.HandleFunc("/PriceService/api/v1/positions/{exchangeId}", getPositions).Methods("GET")
 	r.HandleFunc("/PriceService/api/v1/assets", getAssets).Methods("GET")
+
+	r.HandleFunc("/PriceService/api/v1/assetprice", getAssetPrice).Methods("GET")
 
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {

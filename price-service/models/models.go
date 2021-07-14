@@ -53,3 +53,7 @@ type ErrorString struct {
 func (e *ErrorString) Error() string {
 	return e.S
 }
+
+type PriceResponse struct {
+	CurrentPrice float64 `json:"current_price" bson:"current_price"`
+}

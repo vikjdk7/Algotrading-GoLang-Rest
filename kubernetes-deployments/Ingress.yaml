@@ -47,7 +47,7 @@ spec:
             name: rest-strategy-service
             port:
               number: 443
-      - path: /PriceService/api/v1/assets
+      - path: /PriceService/api/v1
         pathType: Prefix
         backend:
           service:
