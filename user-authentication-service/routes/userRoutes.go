@@ -21,4 +21,7 @@ func UserRoutes(incomingRoutes *gin.Engine) {
 	incomingRoutes.PUT("/UserService/api/v1/userprofile", controller.UserProfile())
 	incomingRoutes.GET("/UserService/api/v1/userprofile", controller.GetUserProfile())
 	incomingRoutes.DELETE("/UserService/api/v1/deleteuser", controller.DeleteUser())
+
+	incomingRoutes.POST("/UserService/api/v1/profileimage", controller.UploadProfileImage())
+	incomingRoutes.GET("/UserService/api/v1/profileimage", controller.GetProfileImage())
 }

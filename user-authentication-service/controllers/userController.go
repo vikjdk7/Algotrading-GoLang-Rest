@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 
 	"net/http"
@@ -18,17 +19,42 @@ import (
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/middleware"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/user-authentication-service/models"
 
+	"cloud.google.com/go/storage"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
+	gcsoptions "google.golang.org/api/option"
 )
 
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 var otpCollection *mongo.Collection = database.OpenCollection(database.Client, "otp")
 var userProfileCollection *mongo.Collection = database.OpenCollection(database.Client, "user_profile")
 var validate = validator.New()
+var uploader *models.ClientUploader
+
+const (
+	projectID  = "hedgina"
+	bucketName = "hedgina-algobot"
+)
+
+func init() {
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", `{"type":"service_account","project_id":"hedgina","private_key_id":"c7e362ab4968ea8f56f8d3db6670664e01c0ec65","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDTYkgoLnNR7GBQ\niFmG3X63eo/yzy6Mm3gJGG2GzOHm4U+5KFuaINNa81UvB+WJCM8S7AZ2ptDy6lBc\nPHu+bU7cP/VIU00kyn+8+K59sfg3E7bbH+5vr9SoI38fwwF0Y/F21lYWzuiJ0wm7\ns4EVuZUIXBDdb3NCXTPCjxMOmWywewg/nItUFpJXCsQal7dLcAR/jnfn21xUqK42\nrigxa0YCAxnZDIrrXDYDLJIMnXF5vQbDl45l5NvcmhQ2BybS6RozNjKdgkMyC87q\ncwZif1OkHVtspvFnwQNbK6jEsxCDjhApvjIbNfXqU4YW7fPm9ZWmROvvnVueDIZ1\nZwFy1BZrAgMBAAECggEAGUPA7hSHMf53kIiLcsQcdh+O/u1mWeXnFec2iAsK4QaC\n+dVqBWTw/gjhYIqoE5Xa8h8Fsr7DcJUy36NXAu6bo1V9opRaPxB47gQnDtzrluGj\nVFNfszenyiTb99bd4KRlYtfBWF6IipiPrECLKCaTOnmOhnjgpMjw+8sP8wnBZOJH\n8DpPfVQcS6Amq2RTYN9NWfjfFSzhQz0tHUMa2fV9ymyhKRQCfjTmAeNjuGm0qgsM\n3p4zJPbW2KFufv9zLJBEO2PKfEzi2N1nHAbPkiWOa3mwT/CuCpKhIMt8Ws2Whkio\nRGABiJL97FPYzy3B/Z2+sLmi6b4nuEUzshrIdg7W4QKBgQD0Y9SGGcv9CXOFxPLj\nTWN/G4EgQOl64MRp1T0LrLNoTxyasVTwsht9itK0+s1ozBiqBzSIzig6gU8i9ro1\nWwCF0YMZ53wLmsFDIxB73RRDrs71vOrg6t5HyIUcaPHjFAO+f9j/Ytb38Dqih8Lx\ncFDxuyir1DBSBu1XLQrKmLJisQKBgQDdbQu27s71ZcLU+2ArkwZm9Gb87Lj/z4Sx\nVDLIXAzhdcVWea2/FQcxXmNraD5EwackoZ4m255OsBgVrIbApAPgP5QeKn3crVfy\nUlo4ZF9PluqXs9H2TRUSuPd/TwsHVRgssvB5+zBnVYRX+Pl9kLMTajNvF4B34QTY\nCzIy99R52wKBgAZJgzAn/b12vsgUNwNt/D9K39mKkfcdTTBD0hw4xyzJzDyWj07Z\n5icmqSEKyroFdiT5pnpWg2Zt6TFHE6dHvg2zRCIoeGJ8CrjFcCkfmOPc3WopAAnl\nQO6r0/DVKlPjMe12sIhxbIJYZcnEoFlBwHNXk0ZIYS3bC8QQXpSztPMhAoGANGLF\nH712B0bRBnSGdyisnhT6fKJAzny5Jv8FmLN2dKzZSDE3cvq1ne931ARwnvG16ou2\nD/lrhbBRsmcD5nWnWRmRoGVrK5dzNChZoffVOM46qDNp3Dy2XJyYKW147X4rXv/i\ntuk/tWLdEbccx6FBTLmWe5Ty1unMrJRRhw9tHHsCgYEAhXLwNm2Xtkmzb8Q9Mffk\nPlEZbEZYkZHwIVV3PvNhIs3v9uM2KN2dAhLGvJDyWePKKWNiMWhcpSIZv+i3ybz9\n9E1GsZWUGGdSONNX2uVGFlm3JxU3ozk8Olh6C4w+k+5TgUEUpM2no2qXsUkMMSLs\n6YUuiXOlYWeiYmn3txkGukE=\n-----END PRIVATE KEY-----\n","client_email":"gcp-image-admin@hedgina.iam.gserviceaccount.com","client_id":"109441199199133427068","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/gcp-image-admin%40hedgina.iam.gserviceaccount.com"}`)
+	GOOGLE_APPLICATION_CREDENTIALS := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	client, err := storage.NewClient(context.Background(), gcsoptions.WithCredentialsJSON([]byte(GOOGLE_APPLICATION_CREDENTIALS)))
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+
+	uploader = &models.ClientUploader{
+		Cl:         client,
+		BucketName: bucketName,
+		ProjectID:  projectID,
+		UploadPath: "profile-images/",
+	}
+
+}
 
 //HashPassword is used to encrypt the password before it is stored in the DB
 func HashPassword(password string) string {
@@ -550,5 +576,64 @@ func DeleteUser() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusNoContent, nil)
+	}
+}
+
+func UploadProfileImage() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if len(c.Request.Header["Token"]) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Token cannot be empty"})
+			return
+		}
+		token := c.Request.Header["Token"][0]
+
+		userId, errorMsg := middleware.ValdateIncomingToken(token)
+		if errorMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+			return
+		}
+
+		f, err := c.FormFile("profile_image")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		blobFile, err := f.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		//filename := fmt.Sprintf("%s_%s", userId, f.Filename)
+		err = uploader.UploadFile(blobFile, userId)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{"message": "success"})
+	}
+}
+
+func GetProfileImage() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if len(c.Request.Header["Token"]) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Token cannot be empty"})
+			return
+		}
+		token := c.Request.Header["Token"][0]
+
+		userId, errorMsg := middleware.ValdateIncomingToken(token)
+		if errorMsg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+			return
+		}
+
+		data, contentType, err := uploader.ReadFile(userId)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.Data(http.StatusOK, contentType, data)
 	}
 }
