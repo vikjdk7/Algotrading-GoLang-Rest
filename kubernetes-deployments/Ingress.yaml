@@ -6,7 +6,7 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, DELETE"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, DELETE", "PATCH"
     nginx.ingress.kubernetes.io/cors-allow-headers: "token, Access-Control-Allow-Origin, Content-Type"
 spec:
   rules:
