@@ -943,7 +943,7 @@ func getDealsForUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(deals)
 }
 
-func cancelDeal(w http.ResponseWriter, r *http.Request) {
+func modifyDeal(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var incomingbody models.ManipulateDeal
@@ -985,29 +985,52 @@ func cancelDeal(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(err, w)
 		return
 	}
+	// Cancel or Close a Deal
+	if incomingbody.Status != "" {
 
-	if deal.Status != "running" && deal.Status != "bought" {
-		customError.S = fmt.Sprintf("Cannot cancel or close a %s deal", deal.Status)
-		helper.GetError(&customError, w)
-		return
-	}
-	if incomingbody.Status != "cancelled" && incomingbody.Status != "close_at_market_price" {
-		customError.S = fmt.Sprintf("Invalid Status Value. Allowed Values: [cancelled, close_at_market_price]")
-		helper.GetError(&customError, w)
-		return
-	}
-	if incomingbody.Status == "cancelled" {
-		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "cancelled", "deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+		if deal.Status != "running" && deal.Status != "bought" {
+			customError.S = fmt.Sprintf("Cannot cancel or close a %s deal", deal.Status)
+			helper.GetError(&customError, w)
+			return
+		}
+		if incomingbody.Status != "cancelled" && incomingbody.Status != "close_at_market_price" {
+			customError.S = fmt.Sprintf("Invalid Status Value. Allowed Values: [cancelled, close_at_market_price]")
+			helper.GetError(&customError, w)
+			return
+		}
+		if incomingbody.Status == "cancelled" {
+			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "cancelled", "deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+			err = updateResult.Decode(&deal)
+		} else {
+			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "completed", "deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+			err = updateResult.Decode(&deal)
+		}
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		json.NewEncoder(w).Encode(models.CancelDealResponse{Cancelled: true})
+
+	} else if incomingbody.TargetProfit != "" && incomingbody.StopLossPercent != "" && incomingbody.MaxSafetyTradeCount != 0 && incomingbody.MaxActiveSafetyTradeCount != 0 {
+		// Edit a Deal
+		if deal.Status != "running" && deal.Status != "bought" {
+			customError.S = fmt.Sprintf("Cannot modify a %s deal", deal.Status)
+			helper.GetError(&customError, w)
+			return
+		}
+		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"max_active_safety_trade_count": incomingbody.MaxActiveSafetyTradeCount, "max_safety_trade_count": incomingbody.MaxSafetyTradeCount, "target_profit": incomingbody.TargetProfit, "stop_loss_percent": incomingbody.StopLossPercent, "deal_edited_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
 		err = updateResult.Decode(&deal)
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		json.NewEncoder(w).Encode(deal)
 	} else {
-		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "completed", "deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
-		err = updateResult.Decode(&deal)
-	}
-	if err != nil {
-		helper.GetError(err, w)
+		customError.S = fmt.Sprintf("Not enough parameters to perform required action on the Deal")
+		helper.GetError(&customError, w)
 		return
 	}
-	json.NewEncoder(w).Encode(models.CancelDealResponse{Cancelled: true})
+
 }
 
 func getAccountInfo(w http.ResponseWriter, r *http.Request) {
@@ -1097,7 +1120,7 @@ func main() {
 	//r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
 	r.HandleFunc("/StrategyService/api/v1/deals/{id}", getDealsForStrategy).Methods("GET")
 	r.HandleFunc("/StrategyService/api/v1/deals", getDealsForUser).Methods("GET")
-	r.HandleFunc("/StrategyService/api/v1/deals/{id}", cancelDeal).Methods("PUT")
+	r.HandleFunc("/StrategyService/api/v1/deals/{id}", modifyDeal).Methods("PUT")
 
 	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 

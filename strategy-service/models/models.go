@@ -89,6 +89,8 @@ type Deal struct {
 	SafetyOrderSize               float64            `json:"safety_order_size" bson:"safety_order_size"`
 	DealCancelledByUser           bool               `json:"deal_cancelled_by_user" bson:"deal_cancelled_by_user"`
 	DealClosedAtMarketPriceByUser bool               `json:"deal_closed_at_market_price_by_user" bson:"deal_closed_at_market_price_by_user"`
+	StopLossPercent               string             `json:"stop_loss_percent" bson:"stop_loss_percent"`
+	DealEditedByUser              bool               `json:"deal_edited_by_user" bson:"deal_edited_by_user"`
 	//TotalOrderAmount          float64            `json:"total_order_amount" bson:"total_order_amount"`
 }
 type DealRequest struct {
@@ -159,5 +161,9 @@ type DealJson struct {
 }
 
 type ManipulateDeal struct {
-	Status string `json:"status"`
+	Status                    string `json:"status"`
+	MaxActiveSafetyTradeCount int64  `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
+	MaxSafetyTradeCount       int64  `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
+	TargetProfit              string `json:"target_profit" bson:"target_profit"`
+	StopLossPercent           string `json:"stop_loss_percent" bson:"stop_loss_percent"`
 }
