@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -31,6 +33,8 @@ type Strategy struct {
 	UserId                    string             `json:"user_id" bson:"user_id"`
 	Version                   int64              `json:"version" bson:"version"`
 	Status                    string             `json:"status" bson:"status"`
+	TotalDeals                int64              `json:"total_deals" bson:"total_deals"`
+	ActiveDeals               int64              `json:"active_deals" bson:"active_deals"`
 	Stock                     []*Stock           `json:"stock" bson:"stock"`
 }
 
@@ -38,6 +42,7 @@ type StrategyRevision struct {
 	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	StrategyName              string             `json:"strategy_name" bson:"strategy_name"`
 	SelectedExchange          string             `json:"selected_exchange" bson:"selected_exchange"`
+	SelectedExchangeName      string             `json:"selected_exchange_name" bson:"selected_exchange_name"`
 	StrategyType              string             `json:"strategy_type" bson:"strategy_type"`
 	StartOrderType            string             `json:"start_order_type" bson:"start_order_type"`
 	DealStartCondition        string             `json:"deal_start_condition" bson:"deal_start_condition"`
@@ -55,18 +60,36 @@ type StrategyRevision struct {
 	UserId                    string             `json:"user_id" bson:"user_id"`
 	Version                   int64              `json:"version" bson:"version"`
 	Status                    string             `json:"status" bson:"status"`
+	TotalDeals                int64              `json:"total_deals" bson:"total_deals"`
+	ActiveDeals               int64              `json:"active_deals" bson:"active_deals"`
 	Stock                     []*Stock           `json:"stock" bson:"stock"`
 	StrategyId                string             `json:"strategy_id" bson:"strategy_id"`
 }
 
 type Deal struct {
-	Id                        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	StrategyId                string             `json:"strategy_id" bson:"strategy_id"`
-	Stock                     string             `json:"stock" bson:"stock"`
-	UserId                    string             `json:"user_id" bson:"user_id"`
-	Status                    string             `json:"status" bson:"status"`
-	MaxActiveSafetyTradeCount int64              `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
-	MaxSafetyTradeCount       int64              `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
+	Id                            primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	StrategyId                    string             `json:"strategy_id" bson:"strategy_id"`
+	StrategyVersion               int64              `json:"strategy_version" bson:"strategy_version"`
+	Stock                         string             `json:"stock" bson:"stock"`
+	UserId                        string             `json:"user_id" bson:"user_id"`
+	Status                        string             `json:"status" bson:"status"`
+	MaxActiveSafetyTradeCount     int64              `json:"max_active_safety_trade_count" bson:"max_active_safety_trade_count"`
+	MaxSafetyTradeCount           int64              `json:"max_safety_trade_count" bson:"max_safety_trade_count"`
+	ActiveSafetyOrderCount        int64              `json:"active_safety_order_count" bson:"active_safety_order_count"`
+	FilledSafetyOrderCount        int64              `json:"filled_safety_order_count" bson:"filled_safety_order_count"`
+	CreatedAt                     time.Time          `json:"created_at" bson:"created_at"`
+	TotalOrderQuantity            int64              `json:"total_order_quantity" bson:"total_order_quantity"`
+	ProfitPercentage              string             `json:"profit_percentage" bson:"profit_percentage"`
+	TotalBuyingPrice              float64            `json:"total_buying_price" bson:"total_buying_price"`
+	TotalSellPrice                float64            `json:"total_sell_price" bson:"total_sell_price"`
+	TargetProfit                  string             `json:"target_profit" bson:"target_profit"`
+	StrategyName                  string             `json:"strategy_name" bson:"strategy_name"`
+	SelectedExchange              string             `json:"selected_exchange" bson:"selected_exchange"`
+	BaseOrderSize                 float64            `json:"base_order_size" bson:"base_order_size"`
+	SafetyOrderSize               float64            `json:"safety_order_size" bson:"safety_order_size"`
+	DealCancelledByUser           bool               `json:"deal_cancelled_by_user" bson:"deal_cancelled_by_user"`
+	DealClosedAtMarketPriceByUser bool               `json:"deal_closed_at_market_price_by_user" bson:"deal_closed_at_market_price_by_user"`
+	//TotalOrderAmount          float64            `json:"total_order_amount" bson:"total_order_amount"`
 }
 type DealRequest struct {
 	StrategyId string   `json:"strategy_id" bson:"strategy_id"`
@@ -124,4 +147,17 @@ type ErrorString struct {
 
 func (e *ErrorString) Error() string {
 	return e.S
+}
+
+type CancelDealResponse struct {
+	Cancelled bool `json:"cancelled"`
+}
+
+type DealJson struct {
+	DealId string `json:"deal_id"`
+	Asset  string `json:"asset"`
+}
+
+type ManipulateDeal struct {
+	Status string `json:"status"`
 }

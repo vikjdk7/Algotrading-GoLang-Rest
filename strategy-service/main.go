@@ -7,11 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/alpacahq/alpaca-trade-api-go/alpaca"
 	"github.com/alpacahq/alpaca-trade-api-go/common"
 	"github.com/gorilla/mux"
+	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/algobot"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/helper"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/middleware"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/models"
@@ -86,7 +89,7 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 	strategy.StrategyType = "long"
 	strategy.StartOrderType = "market"
 	strategy.DealStartCondition = "Open new trade asap"
-	strategy.Status = "stopped"
+	strategy.Status = "running"
 	strategy.Version = 1
 
 	if strategy.BaseOrderSize == 0.0 {
@@ -140,6 +143,7 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(&customError, w)
 		return
 	}
+
 	for _, v := range strategy.Stock {
 		assetCount, err := assetsCollection.CountDocuments(context.TODO(), bson.M{"symbol": v.StockName})
 		if err != nil {
@@ -152,15 +156,63 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	strategy.Id = primitive.NewObjectID()
+	strategy.TotalDeals = int64(len(strategy.Stock))
+
+	dealsArray, errMsg := createDeal(strategy)
+
+	if errMsg != "" {
+		customError.S = errMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	//Waitgroup
+	wg := &sync.WaitGroup{}
+
+	// Get Exchange Data for Creating Deals
+	exchange_id, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
+	var dataResultReadExchange models.Exchange
+	resultReadExchange := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": exchange_id, "user_id": strategy.UserId})
+	if err := resultReadExchange.Decode(&dataResultReadExchange); err != nil {
+		customError.S = fmt.Sprintf("Could not find Exchange with Id %s: %v", exchange_id, err)
+		helper.GetError(&customError, w)
+		return
+	}
+	var exchange_url string
+	if dataResultReadExchange.ExchangeType == "paper_trading" {
+		exchange_url = "https://paper-api.alpaca.markets"
+	} else {
+		exchange_url = "https://api.alpaca.markets"
+	}
+
+	var active_deals int64 = 0
+	for _, v := range dealsArray {
+		wg.Add(1)
+		errMsg := algobot.StartBot(strategy, v.DealId, v.Asset, dataResultReadExchange.ApiKey, dataResultReadExchange.ApiSecret, exchange_url, wg)
+		if errMsg != "" {
+			fmt.Println(fmt.Sprintf("Could not start bot for deal %s. Error: %s", v.DealId, errMsg))
+			//customError.S = fmt.Sprintf("Could not start bot for deal %s. Error: %s", v.DealId, errMsg)
+			deal_id, _ := primitive.ObjectIDFromHex(v.DealId)
+			_, err := dealsCollection.DeleteOne(context.TODO(), bson.M{"_id": deal_id})
+			if err != nil {
+				fmt.Sprintf("Could not find/delete deal with id %s: %v", deal_id, err)
+			}
+			//helper.GetError(&customError, w)
+			//return
+		} else {
+			active_deals++
+		}
+	}
+	strategy.ActiveDeals = active_deals
 	// insert our strategy model.
-	result, err := strategyCollection.InsertOne(context.TODO(), strategy)
+	_, err := strategyCollection.InsertOne(context.TODO(), strategy)
 
 	if err != nil {
 		helper.GetError(err, w)
 		return
 	}
-
-	strategy.Id = result.InsertedID.(primitive.ObjectID)
 
 	eventData := models.EventHistory{
 		OperationType: "insert",
@@ -178,6 +230,7 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	wg.Wait()
 	json.NewEncoder(w).Encode(strategy)
 
 }
@@ -347,7 +400,7 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 			helper.GetError(err, w)
 			return
 		}
-		if strategyCount > 0 {
+		if strategyCount > 0 && strategy.StrategyName != dataResultReadStrategy.StrategyName {
 			customError.S = fmt.Sprintf("Duplicate Name. Strategy with name %s already exixts", strategy.StrategyName)
 			helper.GetError(&customError, w)
 			return
@@ -424,6 +477,27 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 	}
 	if strategy.Stock != nil {
 
+		oldValues.TotalDeals = dataResultReadStrategy.TotalDeals
+		newValues.TotalDeals = int64(len(strategy.Stock))
+		update["total_deals"] = newValues.TotalDeals
+		oldValues.ActiveDeals = dataResultReadStrategy.ActiveDeals
+		var active_deals int64 = dataResultReadStrategy.ActiveDeals
+
+		exchange_id, _ := primitive.ObjectIDFromHex(strategy.SelectedExchange)
+		var dataResultReadExchange models.Exchange
+		resultReadExchange := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": exchange_id, "user_id": userId})
+		if err := resultReadExchange.Decode(&dataResultReadExchange); err != nil {
+			customError.S = fmt.Sprintf("Could not find Exchange with Id %s: %v", exchange_id, err)
+			helper.GetError(&customError, w)
+			return
+		}
+		var exchange_url string
+		if dataResultReadExchange.ExchangeType == "paper_trading" {
+			exchange_url = "https://paper-api.alpaca.markets"
+		} else {
+			exchange_url = "https://api.alpaca.markets"
+		}
+
 		for _, v := range strategy.Stock {
 			assetCount, err := assetsCollection.CountDocuments(context.TODO(), bson.M{"symbol": v.StockName})
 			if err != nil {
@@ -435,7 +509,100 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 				helper.GetError(&customError, w)
 				return
 			}
+
+			dealCount, err := dealsCollection.CountDocuments(context.TODO(), bson.M{"stock": v.StockName, "user_id": userId, "strategy_id": dataResultReadStrategy.StrategyId})
+			if err != nil {
+				helper.GetError(err, w)
+				return
+			}
+			if dealCount == 0 {
+
+				dealId := primitive.NewObjectID()
+
+				max_active_safety_trade_count := dataResultReadStrategy.MaxActiveSafetyTradeCount
+				if strategy.MaxActiveSafetyTradeCount != 0 {
+					max_active_safety_trade_count = strategy.MaxActiveSafetyTradeCount
+				}
+
+				max_safety_trade_count := dataResultReadStrategy.MaxSafetyTradeCount
+
+				if strategy.MaxSafetyTradeCount != 0 {
+					max_safety_trade_count = strategy.MaxSafetyTradeCount
+				}
+
+				name := dataResultReadStrategy.StrategyName
+				if strategy.StrategyName != "" {
+					name = strategy.StrategyName
+				}
+				current_timestamp, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+
+				dealInsert := bson.M{
+					"_id":                           dealId,
+					"strategy_id":                   dataResultReadStrategy.StrategyId,
+					"strategy_version":              dataResultReadStrategy.Version + 1,
+					"user_id":                       userId,
+					"stock":                         v.StockName,
+					"status":                        "running",
+					"max_active_safety_trade_count": max_active_safety_trade_count,
+					"max_safety_trade_count":        max_safety_trade_count,
+					"active_safety_order_count":     0,
+					"filled_safety_order_count":     0,
+					"created_at":                    current_timestamp,
+					"total_order_quantity":          0,
+					"profit_percentage":             "0",
+					"total_buying_price":            0.0,
+					"total_sell_price":              0.0,
+					"target_profit":                 strategy.TargetProfit,
+					"strategy_name":                 strategy.StrategyName,
+					"selected_exchange":             strategy.SelectedExchange,
+					"base_order_size":               strategy.BaseOrderSize,
+					"safety_order_size":             strategy.SafetyOrderSize,
+				}
+
+				dealHistory := bson.M{
+					"operation_type": "insert",
+					"timestamp":      time.Now().Format(time.RFC3339),
+					"db":             "hedgina_algobot",
+					"collection":     "deal",
+					"name":           name,
+					"user_id":        userId,
+					"deal_id":        dealId,
+					"strategy_id":    dataResultReadStrategy.StrategyId,
+					"new_value":      dealInsert,
+				}
+				wg := &sync.WaitGroup{}
+
+				wg.Add(1)
+				errMsg := algobot.StartBot(strategy, dealId.Hex(), v.StockName, dataResultReadExchange.ApiKey, dataResultReadExchange.ApiSecret, exchange_url, wg)
+				if errMsg != "" {
+					fmt.Println(fmt.Sprintf("Could not start bot for the deal. Error: %s", errMsg))
+					//customError.S = fmt.Sprintf("Could not start bot for the deal. Error: %s", errMsg)
+					//helper.GetError(&customError, w)
+					//return
+				} else {
+					_, err := dealsCollection.InsertOne(context.TODO(), dealInsert)
+					if err != nil {
+						customError.S = "Could not create Deal."
+						helper.GetError(&customError, w)
+						return
+					}
+
+					_, err = eventHistoryCollection.InsertOne(context.TODO(), dealHistory)
+					if err != nil {
+						customError.S = "Could not create Deal History."
+						helper.GetError(&customError, w)
+						return
+					}
+					active_deals++
+				}
+				wg.Wait()
+
+				update["status"] = "running"
+
+			}
 		}
+		newValues.ActiveDeals = active_deals
+		update["active_deals"] = active_deals
 		update["stock"] = strategy.Stock
 		oldValues.Stock = dataResultReadStrategy.Stock
 		newValues.Stock = strategy.Stock
@@ -559,74 +726,39 @@ func deleteStrategy(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func HasStock(list []*models.Stock, a string) bool {
-	for _, b := range list {
-		if b.StockName == a {
-			return true
-		}
-	}
-	return false
-}
-
-func createDeal(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var dealRequest models.DealRequest
-
-	// we decode our body request params
-	_ = json.NewDecoder(r.Body).Decode(&dealRequest)
-
-	var customError models.ErrorString
-	token := r.Header.Get("token")
-	if token == "" {
-		customError.S = "Token cannot be empty"
-		helper.GetError(&customError, w)
-		return
-	}
-	userId, errorMsg := middleware.ValdateIncomingToken(token)
-	if errorMsg != "" {
-		customError.S = errorMsg
-		helper.GetError(&customError, w)
-		return
-	}
-
-	var strategy models.Strategy
-	if dealRequest.StrategyId == "" {
-		customError.S = "Strategy Id cannot be empty"
-		helper.GetError(&customError, w)
-		return
-	}
-	strategyId, err := primitive.ObjectIDFromHex(dealRequest.StrategyId)
-	if err != nil {
-		customError.S = "Invalid Strategy Id. Cannot convert Strategy Id to Primitive Object Id."
-		helper.GetError(&customError, w)
-		return
-	}
-	err = strategyCollection.FindOne(context.TODO(), bson.M{"_id": strategyId, "user_id": userId}).Decode(&strategy)
-	if err != nil {
-		customError.S = "Invalid Strategy Id. Cannot find strategy for the user."
-		helper.GetError(&customError, w)
-		return
-	}
+func createDeal(strategy models.Strategy) (dealsArray []models.DealJson, msg string) {
 
 	var insertDeal []interface{}
 	var insertDealHistory []interface{}
-	for _, v := range *dealRequest.Stock {
-
-		if !HasStock(strategy.Stock, v.StockName) {
-			customError.S = fmt.Sprintf("Invalid Asset %s. Asset not part of Strategy", v.StockName)
-			helper.GetError(&customError, w)
-			return
-		}
+	dealsArray = make([]models.DealJson, 0)
+	var dealJson models.DealJson
+	for _, v := range strategy.Stock {
 		dealId := primitive.NewObjectID()
+		current_timestamp, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+		dealJson.DealId = dealId.Hex()
+		dealJson.Asset = v.StockName
+		dealsArray = append(dealsArray, dealJson)
 		deal := bson.M{
 			"_id":                           dealId,
-			"strategy_id":                   dealRequest.StrategyId,
-			"user_id":                       userId,
+			"strategy_id":                   strategy.Id.Hex(),
+			"strategy_version":              1,
+			"user_id":                       strategy.UserId,
 			"stock":                         v.StockName,
 			"status":                        "running",
 			"max_active_safety_trade_count": strategy.MaxActiveSafetyTradeCount,
 			"max_safety_trade_count":        strategy.MaxSafetyTradeCount,
+			"active_safety_order_count":     0,
+			"filled_safety_order_count":     0,
+			"created_at":                    current_timestamp,
+			"total_order_quantity":          0,
+			"profit_percentage":             "0",
+			"total_buying_price":            0.0,
+			"total_sell_price":              0.0,
+			"target_profit":                 strategy.TargetProfit,
+			"strategy_name":                 strategy.StrategyName,
+			"selected_exchange":             strategy.SelectedExchange,
+			"base_order_size":               strategy.BaseOrderSize,
+			"safety_order_size":             strategy.SafetyOrderSize,
 		}
 		insertDeal = append(insertDeal, deal)
 		dealHistory := bson.M{
@@ -635,9 +767,9 @@ func createDeal(w http.ResponseWriter, r *http.Request) {
 			"db":             "hedgina_algobot",
 			"collection":     "deal",
 			"name":           strategy.StrategyName,
-			"user_id":        userId,
+			"user_id":        strategy.UserId,
 			"deal_id":        dealId,
-			"strategy_id":    dealRequest.StrategyId,
+			"strategy_id":    strategy.Id.Hex(),
 			"new_value":      deal,
 		}
 		insertDealHistory = append(insertDealHistory, dealHistory)
@@ -645,55 +777,22 @@ func createDeal(w http.ResponseWriter, r *http.Request) {
 
 	insertManyResult, err := dealsCollection.InsertMany(context.TODO(), insertDeal)
 	if err != nil {
-		customError.S = "Could not create Deals."
-		helper.GetError(&customError, w)
-		return
+		return nil, "Could not create Deals."
 	}
 	fmt.Print("Inserted Deal ID's: ")
 	fmt.Println(insertManyResult.InsertedIDs)
 
 	insertManyDealHistoryResult, err := eventHistoryCollection.InsertMany(context.TODO(), insertDealHistory)
 	if err != nil {
-		customError.S = "Could not create Deals History."
-		helper.GetError(&customError, w)
-		return
+		return nil, "Could not create Deals History."
 	}
 	fmt.Print("Inserted Deal History ID's: ")
 	fmt.Println(insertManyDealHistoryResult.InsertedIDs)
 
-	err = strategyCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": strategyId}, bson.M{"$set": bson.M{"status": "running"}}, options.FindOneAndUpdate().SetReturnDocument(1)).Decode(&strategy)
-	if err != nil {
-		customError.S = "Could not update Starategy Status."
-		helper.GetError(&customError, w)
-		return
-	}
-	strategyEventData := models.EventHistory{
-		OperationType: "update",
-		Timestamp:     time.Now().Format(time.RFC3339),
-		Db:            "hedgina_algobot",
-		Collection:    "strategy",
-		Name:          strategy.StrategyName,
-		UserId:        strategy.UserId,
-		StrategyId:    dealRequest.StrategyId,
-		OldValue: models.Strategy{
-			Status: strategy.Status,
-		},
-		NewValue: models.Strategy{
-			Status: "running",
-		},
-	}
-	_, errStrategyEventHistory := eventHistoryCollection.InsertOne(context.TODO(), strategyEventData)
-	if errStrategyEventHistory != nil {
-		customError.S = "Could not create strategy event history."
-		helper.GetError(&customError, w)
-		return
-	}
-
-	json.NewEncoder(w).Encode(insertManyResult.InsertedIDs)
-
+	return dealsArray, ""
 }
 
-func getDeals(w http.ResponseWriter, r *http.Request) {
+func getDealsForStrategy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var customError models.ErrorString
@@ -728,12 +827,15 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	query["strategy_id"] = params["id"]
 	status := r.URL.Query().Get("status")
 	if status != "" {
-		if status != "running" {
-			customError.S = "Invalid query paramter status. Allowed values: [running, completed]"
-			helper.GetError(&customError, w)
-			return
+		statusArr := strings.Split(status, ",")
+		for _, sts := range statusArr {
+			if sts != "running" && sts != "bought" && sts != "completed" && sts != "cancelled" {
+				customError.S = "Invalid query paramter status. Allowed values: [running, bought, completed, cancelled]"
+				helper.GetError(&customError, w)
+				return
+			}
 		}
-		query["status"] = status
+		query["status"] = bson.M{"$in": statusArr}
 	}
 
 	cur, err := dealsCollection.Find(context.TODO(), query)
@@ -767,6 +869,145 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(deals)
+}
+
+func getDealsForUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	// create Deals array
+	deals := make([]models.Deal, 0)
+
+	query := bson.M{}
+	query["user_id"] = userId
+
+	status := r.URL.Query().Get("status")
+
+	if status != "" {
+		statusArr := strings.Split(status, ",")
+		for _, sts := range statusArr {
+			if sts != "running" && sts != "bought" && sts != "completed" && sts != "cancelled" {
+				customError.S = "Invalid query paramter status. Allowed values: [running, bought, completed, cancelled]"
+				helper.GetError(&customError, w)
+				return
+			}
+		}
+		query["status"] = bson.M{"$in": statusArr}
+	}
+	cur, err := dealsCollection.Find(context.TODO(), query)
+
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	// Close the cursor once finished
+	defer cur.Close(context.TODO())
+
+	for cur.Next(context.TODO()) {
+
+		// create a value into which the single document can be decoded
+		var deal models.Deal
+		// & character returns the memory address of the following variable.
+		err := cur.Decode(&deal) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+
+		// add item our array
+		deals = append(deals, deal)
+	}
+
+	if err := cur.Err(); err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	json.NewEncoder(w).Encode(deals)
+}
+
+func cancelDeal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var incomingbody models.ManipulateDeal
+	// we decode our body request params
+	_ = json.NewDecoder(r.Body).Decode(&incomingbody)
+
+	var customError models.ErrorString
+	var params = mux.Vars(r)
+
+	if params["id"] == "" {
+		customError.S = "Deal Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	token := r.Header.Get("token")
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	id, err := primitive.ObjectIDFromHex(params["id"])
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	var deal models.Deal
+
+	err = dealsCollection.FindOne(context.TODO(), bson.M{"_id": id, "user_id": userId}).Decode(&deal)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	if deal.Status != "running" && deal.Status != "bought" {
+		customError.S = fmt.Sprintf("Cannot cancel or close a %s deal", deal.Status)
+		helper.GetError(&customError, w)
+		return
+	}
+	if incomingbody.Status != "cancelled" && incomingbody.Status != "close_at_market_price" {
+		customError.S = fmt.Sprintf("Invalid Status Value. Allowed Values: [cancelled, close_at_market_price]")
+		helper.GetError(&customError, w)
+		return
+	}
+	if incomingbody.Status == "cancelled" {
+		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "cancelled", "deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+		err = updateResult.Decode(&deal)
+	} else {
+		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "completed", "deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+		err = updateResult.Decode(&deal)
+	}
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	json.NewEncoder(w).Encode(models.CancelDealResponse{Cancelled: true})
 }
 
 func getAccountInfo(w http.ResponseWriter, r *http.Request) {
@@ -853,8 +1094,10 @@ func main() {
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", updateStrategy).Methods("PUT")
 	r.HandleFunc("/StrategyService/api/v1/strategies/{id}", deleteStrategy).Methods("DELETE")
 
-	r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
-	r.HandleFunc("/StrategyService/api/v1/deals/{id}", getDeals).Methods("GET")
+	//r.HandleFunc("/StrategyService/api/v1/deals", createDeal).Methods("POST")
+	r.HandleFunc("/StrategyService/api/v1/deals/{id}", getDealsForStrategy).Methods("GET")
+	r.HandleFunc("/StrategyService/api/v1/deals", getDealsForUser).Methods("GET")
+	r.HandleFunc("/StrategyService/api/v1/deals/{id}", cancelDeal).Methods("PUT")
 
 	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 

@@ -8,4 +8,7 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/shopspring/decimal v1.2.0
 	go.mongodb.org/mongo-driver v1.5.3
+	k8s.io/api v0.19.0
+	k8s.io/apimachinery v0.19.0
+	k8s.io/client-go v0.19.0
 )

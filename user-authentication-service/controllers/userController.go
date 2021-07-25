@@ -489,9 +489,9 @@ func UserProfile() gin.HandlerFunc {
 		if userProfile.ReceiveNotification != nil {
 			updateProfile["receive_notification"] = userProfile.ReceiveNotification
 		}
-		if *userProfile.ProfilePicture != "" {
+		/*if *userProfile.ProfilePicture != "" {
 			updateProfile["profile_picture"] = userProfile.ProfilePicture
-		}
+		}*/
 		if updateUserDB == true {
 			result := userCollection.FindOneAndUpdate(context.TODO(), filter, bson.M{"$set": updateUser})
 

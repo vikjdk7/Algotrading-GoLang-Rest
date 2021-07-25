@@ -36,7 +36,7 @@ type UserProfile struct {
 	BillingAddress      *string            `json:"billing_address" bson:"billing_address"`
 	SameBillingAdd      *bool              `json:"same_billing_add" bson:"same_billing_add"`
 	ReceiveNotification *bool              `json:"receive_notification" bson:"receive_notification"`
-	ProfilePicture      *string            `json:"profile_picture" bson:"profile_picture"`
+	//ProfilePicture      *string            `json:"profile_picture" bson:"profile_picture"`
 }
 
 type ResetPassword struct {
