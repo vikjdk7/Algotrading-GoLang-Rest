@@ -14,6 +14,7 @@ import (
 	"github.com/alpacahq/alpaca-trade-api-go/alpaca"
 	"github.com/alpacahq/alpaca-trade-api-go/common"
 	"github.com/gorilla/mux"
+	"github.com/shopspring/decimal"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/algobot"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/helper"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/strategy-service/middleware"
@@ -999,10 +1000,10 @@ func modifyDeal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if incomingbody.Status == "cancelled" {
-			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "cancelled", "deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
 			err = updateResult.Decode(&deal)
 		} else {
-			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "completed", "deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
 			err = updateResult.Decode(&deal)
 		}
 		if err != nil {
@@ -1031,6 +1032,129 @@ func modifyDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+}
+
+func buyMoreInADeal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var buymoreRequest models.BuyMoreRequest
+	_ = json.NewDecoder(r.Body).Decode(&buymoreRequest)
+
+	var customError models.ErrorString
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+	if buymoreRequest.DealId == "" {
+		customError.S = "Deal Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	deal_id, err := primitive.ObjectIDFromHex(buymoreRequest.DealId)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	resultReadDeal := dealsCollection.FindOne(context.TODO(), bson.M{"_id": deal_id, "user_id": userId})
+	var dealDataRead models.Deal
+
+	if err := resultReadDeal.Decode(&dealDataRead); err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	// Convert the Id string to a MongoDB ObjectId
+	exchange_id, _ := primitive.ObjectIDFromHex(dealDataRead.SelectedExchange)
+
+	resultReadExchange := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": exchange_id, "user_id": userId, "active": true})
+	var exchangeDataRead models.Exchange
+
+	if err := resultReadExchange.Decode(&exchangeDataRead); err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	var order models.Order
+	if exchangeDataRead.SelectedExchange == "Alpaca" {
+		os.Setenv(common.EnvApiKeyID, exchangeDataRead.ApiKey)
+		os.Setenv(common.EnvApiSecretKey, exchangeDataRead.ApiSecret)
+		if exchangeDataRead.ExchangeType == "paper_trading" {
+			alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+		} else if exchangeDataRead.ExchangeType == "live_trading" {
+			alpaca.SetBaseUrl("https://api.alpaca.markets")
+		}
+		placeOrderRequest := alpaca.PlaceOrderRequest{}
+
+		if buymoreRequest.Symbol == "" {
+			customError.S = "Symbol cannot be empty or null"
+			helper.GetError(&customError, w)
+			return
+		}
+		if buymoreRequest.Symbol != dealDataRead.Stock {
+			customError.S = "Asset does not match the asset in the Deal"
+			helper.GetError(&customError, w)
+			return
+		}
+		placeOrderRequest.AssetKey = &buymoreRequest.Symbol
+		if buymoreRequest.Qty.Cmp(decimal.NewFromFloat(0.0)) != 1 {
+			customError.S = "Quantity should be greater than 0.0"
+			helper.GetError(&customError, w)
+			return
+		}
+		placeOrderRequest.Qty = buymoreRequest.Qty
+		placeOrderRequest.Side = alpaca.Buy
+		if buymoreRequest.Type != models.Market {
+			customError.S = "Invalid Order Type. Allowed Values: [market]"
+			helper.GetError(&customError, w)
+			return
+		}
+		placeOrderRequest.Type = alpaca.Market
+		placeOrderRequest.TimeInForce = alpaca.Day
+		alpacaClient := alpaca.NewClient(common.Credentials())
+
+		orderPlaced, err := alpacaClient.PlaceOrder(placeOrderRequest)
+
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		fmt.Println("Order Placed Response from Alpaca: ")
+		fmt.Println(orderPlaced)
+		jsonOrder, _ := json.Marshal(orderPlaced)
+		_ = json.Unmarshal(jsonOrder, &order)
+		fmt.Println("Order Object in Golang: ")
+		fmt.Println(order)
+		order.UserId = userId
+		order.ExchangeId = dealDataRead.SelectedExchange
+		order.DealId = buymoreRequest.DealId
+		order.StrategyId = dealDataRead.StrategyId
+		_, err = orderCollection.InsertOne(context.TODO(), order)
+		if err != nil {
+			helper.GetError(&customError, w)
+			return
+		}
+		var deal models.Deal
+		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": deal_id}, bson.M{"$set": bson.M{"manual_order_placed_by_user": true}})
+		err = updateResult.Decode(&deal)
+		if err != nil {
+			helper.GetError(&customError, w)
+			return
+		}
+
+		json.NewEncoder(w).Encode(order)
+
+	}
 }
 
 func getAccountInfo(w http.ResponseWriter, r *http.Request) {
@@ -1101,10 +1225,11 @@ var strategy_revisionsCollection *mongo.Collection
 var dealsCollection *mongo.Collection
 var exchangeCollection *mongo.Collection
 var assetsCollection *mongo.Collection
+var orderCollection *mongo.Collection
 
 func init() {
 	//Connect to mongoDB with helper class
-	strategyCollection, eventHistoryCollection, strategy_revisionsCollection, dealsCollection, exchangeCollection, assetsCollection = helper.ConnectDB()
+	strategyCollection, eventHistoryCollection, strategy_revisionsCollection, dealsCollection, exchangeCollection, assetsCollection, orderCollection = helper.ConnectDB()
 }
 
 func main() {
@@ -1121,6 +1246,7 @@ func main() {
 	r.HandleFunc("/StrategyService/api/v1/deals/{id}", getDealsForStrategy).Methods("GET")
 	r.HandleFunc("/StrategyService/api/v1/deals", getDealsForUser).Methods("GET")
 	r.HandleFunc("/StrategyService/api/v1/deals/{id}", modifyDeal).Methods("PUT")
+	r.HandleFunc("/StrategyService/api/v1/deals/buymore", buyMoreInADeal).Methods("POST")
 
 	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 

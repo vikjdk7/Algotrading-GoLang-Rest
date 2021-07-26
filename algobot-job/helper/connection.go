@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection, *mongo.Collection, *mongo.Collection, *mongo.Collection, *mongo.Collection) {
+func ConnectDB() (*mongo.Collection, *mongo.Collection) {
 
 	//Uncomment to run locally
 	//os.Setenv("MONGODB_URL", "mongodb://127.0.0.1:27017")
@@ -37,15 +37,10 @@ func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection, *mong
 
 	mongoDB := client.Database("hedgina_algobot")
 
-	strategyCollection := mongoDB.Collection("strategy")
-	eventHistoryCollection := mongoDB.Collection("eventhistory_strategy")
-	strategy_revisionsCollection := mongoDB.Collection("strategy_revisions")
-	dealsCollection := mongoDB.Collection("deal")
-	exchangeCollection := mongoDB.Collection("exchange")
-	assetsCollection := mongoDB.Collection("assets")
 	orderCollection := mongoDB.Collection("order")
+	dealsCollection := mongoDB.Collection("deal")
 
-	return strategyCollection, eventHistoryCollection, strategy_revisionsCollection, dealsCollection, exchangeCollection, assetsCollection, orderCollection
+	return orderCollection, dealsCollection
 }
 
 type ErrorResponse struct {
