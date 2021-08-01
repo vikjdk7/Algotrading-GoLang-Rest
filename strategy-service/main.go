@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -123,11 +124,11 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 		helper.GetError(&customError, w)
 		return
 	}
-	if strategy.SafetyOrderStepScale == 0.0 {
+	/*if strategy.SafetyOrderStepScale == 0.0 {
 		customError.S = "Safety Order Step Scale cannot be empty"
 		helper.GetError(&customError, w)
 		return
-	}
+	}*/
 	if strategy.TargetProfit == "" {
 		customError.S = "Target Profit cannot be empty"
 		helper.GetError(&customError, w)
@@ -141,6 +142,27 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 	strategy.UserId = userId
 	if strategy.Stock == nil {
 		customError.S = "Stocks cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	stopLossPer, err := strconv.ParseFloat(strategy.StopLossPercent, 64)
+	priceDev, err := strconv.ParseFloat(strategy.PriceDevation, 64)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	if stopLossPer < priceDev {
+		customError.S = "Stop Loss Percentage should be greater than Safety Order Price Deviation."
+		helper.GetError(&customError, w)
+		return
+	}
+	if strategy.MaxActiveSafetyTradeCount > 10 {
+		customError.S = "Maximum Active Safety Trade Count cannot be greater than 10."
+		helper.GetError(&customError, w)
+		return
+	}
+	if strategy.MaxActiveSafetyTradeCount > strategy.MaxSafetyTradeCount {
+		customError.S = "Maximum Active Safety Trade Count cannot be greater than Maximum Safety Trade Count."
 		helper.GetError(&customError, w)
 		return
 	}
@@ -208,7 +230,7 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 	}
 	strategy.ActiveDeals = active_deals
 	// insert our strategy model.
-	_, err := strategyCollection.InsertOne(context.TODO(), strategy)
+	_, err = strategyCollection.InsertOne(context.TODO(), strategy)
 
 	if err != nil {
 		helper.GetError(err, w)
@@ -431,6 +453,52 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 		oldValues.SelectedExchange = dataResultReadStrategy.SelectedExchange
 		newValues.SelectedExchange = strategy.SelectedExchange
 	}
+	if strategy.StopLossPercent != "" && strategy.PriceDevation != "" {
+		stopLossPer, err := strconv.ParseFloat(strategy.StopLossPercent, 64)
+		priceDev, err := strconv.ParseFloat(strategy.PriceDevation, 64)
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if stopLossPer < priceDev {
+			customError.S = "Stop Loss Percentage should be greater than Safety Order Price Deviation."
+			helper.GetError(&customError, w)
+			return
+		}
+	}
+	if strategy.MaxActiveSafetyTradeCount != 0 && strategy.MaxActiveSafetyTradeCount != 0 {
+		if strategy.MaxActiveSafetyTradeCount > 10 {
+			customError.S = "Maximum Active Safety Trade Count cannot be greater than 10."
+			helper.GetError(&customError, w)
+			return
+		}
+		if strategy.MaxActiveSafetyTradeCount > strategy.MaxSafetyTradeCount {
+			customError.S = "Maximum Active Safety Trade Count cannot be greater than Maximum Safety Trade Count."
+			helper.GetError(&customError, w)
+			return
+		}
+	}
+	if strategy.Status != "" {
+		if strategy.Status != "stopped" {
+			customError.S = "Cannot update Strategy. Invalid Status. Allowed Values: [stopped]"
+			helper.GetError(&customError, w)
+			return
+		}
+		statusArr := [2]string{"running", "bought"}
+		dealsCount, err := dealsCollection.CountDocuments(context.TODO(), bson.M{"strategy_id": params["id"], "status": bson.M{"$in": statusArr}})
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if dealsCount > 0 {
+			customError.S = fmt.Sprintf("Cannot stop strategy with %d active deal(s)", dealsCount)
+			helper.GetError(&customError, w)
+			return
+		}
+		update["status"] = strategy.Status
+		oldValues.Status = dataResultReadStrategy.Status
+		newValues.Status = strategy.Status
+	}
 	if strategy.BaseOrderSize != 0.0 {
 		update["base_order_size"] = strategy.BaseOrderSize
 		oldValues.BaseOrderSize = dataResultReadStrategy.BaseOrderSize
@@ -466,12 +534,12 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 		oldValues.SafetyOrderStepScale = dataResultReadStrategy.SafetyOrderStepScale
 		newValues.SafetyOrderStepScale = strategy.SafetyOrderStepScale
 	}
-	if strategy.TargetProfit == "" {
+	if strategy.TargetProfit != "" {
 		update["target_profit"] = strategy.TargetProfit
 		oldValues.TargetProfit = dataResultReadStrategy.TargetProfit
 		newValues.TargetProfit = strategy.TargetProfit
 	}
-	if strategy.StopLossPercent == "" {
+	if strategy.StopLossPercent != "" {
 		update["stop_loss_percent"] = strategy.StopLossPercent
 		oldValues.StopLossPercent = dataResultReadStrategy.StopLossPercent
 		newValues.StopLossPercent = strategy.StopLossPercent
@@ -558,6 +626,7 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 					"selected_exchange":             strategy.SelectedExchange,
 					"base_order_size":               strategy.BaseOrderSize,
 					"safety_order_size":             strategy.SafetyOrderSize,
+					"safety_order_volume_scale":     strategy.SafetyOrderVolumeScale,
 				}
 
 				dealHistory := bson.M{
@@ -760,6 +829,7 @@ func createDeal(strategy models.Strategy) (dealsArray []models.DealJson, msg str
 			"selected_exchange":             strategy.SelectedExchange,
 			"base_order_size":               strategy.BaseOrderSize,
 			"safety_order_size":             strategy.SafetyOrderSize,
+			"safety_order_volume_scale":     strategy.SafetyOrderVolumeScale,
 		}
 		insertDeal = append(insertDeal, deal)
 		dealHistory := bson.M{

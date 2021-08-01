@@ -207,6 +207,8 @@ func getAssetPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println(fmt.Sprintf("Alpaca API's response: %v", latestQuote))
+
 	response := models.PriceResponse{
 		CurrentPrice: latestQuote.AskPrice,
 	}

@@ -87,6 +87,7 @@ type Deal struct {
 	SelectedExchange              string             `json:"selected_exchange" bson:"selected_exchange"`
 	BaseOrderSize                 float64            `json:"base_order_size" bson:"base_order_size"`
 	SafetyOrderSize               float64            `json:"safety_order_size" bson:"safety_order_size"`
+	SafetyOrderVolumeScale        float64            `json:"safety_order_volume_scale" bson:"safety_order_volume_scale"`
 	DealCancelledByUser           bool               `json:"deal_cancelled_by_user" bson:"deal_cancelled_by_user"`
 	DealClosedAtMarketPriceByUser bool               `json:"deal_closed_at_market_price_by_user" bson:"deal_closed_at_market_price_by_user"`
 	StopLossPercent               string             `json:"stop_loss_percent" bson:"stop_loss_percent"`
