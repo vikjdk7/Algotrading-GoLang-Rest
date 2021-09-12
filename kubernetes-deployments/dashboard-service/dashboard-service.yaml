@@ -1,0 +1,38 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rest-dashboard-service-app
+  namespace: hedgina
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rest-dashboard-service
+  template:
+    metadata:
+      labels:
+        app: rest-dashboard-service
+    spec:
+      containers:
+      - name: rest-dashboard-service
+        image: hedgina/rest-dashboard-service:latest
+        imagePullPolicy: Always
+        resources: {}
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rest-dashboard-service
+  namespace: hedgina
+spec:
+  clusterIP: None
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: rest-dashboard-service

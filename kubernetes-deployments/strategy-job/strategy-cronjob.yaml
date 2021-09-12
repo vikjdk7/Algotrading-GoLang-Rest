@@ -1,0 +1,24 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  creationTimestamp: null
+  name: strategy-profit-job
+  namespace: hedgina
+spec:
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+      name: strategy-profit-job
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+        spec:
+          containers:
+          - image: hedgina/strategy-profit-job:latest
+            imagePullPolicy: Always
+            name: strategy-profit-job
+            resources: {}
+          restartPolicy: OnFailure
+  schedule: '0 21 * * *'
+status: {}

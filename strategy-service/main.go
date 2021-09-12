@@ -209,6 +209,52 @@ func createStrategy(w http.ResponseWriter, r *http.Request) {
 	} else {
 		exchange_url = "https://api.alpaca.markets"
 	}
+	os.Setenv(common.EnvApiKeyID, dataResultReadExchange.ApiKey)
+	os.Setenv(common.EnvApiSecretKey, dataResultReadExchange.ApiSecret)
+	alpaca.SetBaseUrl(exchange_url)
+	alpacaClient := alpaca.NewClient(common.Credentials())
+
+	// Calculate total funds needed for a strategy
+	var total_buying_price float64
+	for _, v := range dealsArray {
+		currentAssetPrice := GetCurrentAssetPrice(v.Asset, alpacaClient)
+		total_buying_price += float64(strategy.BaseOrderSize) * currentAssetPrice
+		fmt.Println("total_buying_price without SO: ", total_buying_price)
+		//Add Safety Orders
+		previous_safety_order_buying_price := currentAssetPrice
+		previous_safety_order_deviation, _ := strconv.ParseFloat(strategy.PriceDevation, 64)
+		previous_safety_order_volume := strategy.SafetyOrderVolumeScale
+		for i := int64(0); i < strategy.MaxSafetyTradeCount; i++ {
+			var safety_order_limit_price float64 = previous_safety_order_buying_price * (1.0 - (previous_safety_order_deviation / 100))
+
+			var safety_order_quantity int64
+			var safety_order_volume float64
+			if i == 0 {
+				safety_order_quantity = int64(strategy.SafetyOrderSize)
+				safety_order_volume = strategy.SafetyOrderSize * safety_order_limit_price
+			} else {
+				safety_order_volume = previous_safety_order_volume * strategy.SafetyOrderVolumeScale
+				safety_order_quantity = int64(safety_order_volume / safety_order_limit_price)
+			}
+			total_buying_price += float64(safety_order_quantity) * safety_order_limit_price
+			fmt.Println(fmt.Sprintf("SO %v , SO_Quantity: %v , SO_Limit_Price: %v , SO_Buying_Price: %v", i, safety_order_quantity, safety_order_limit_price, total_buying_price))
+			previous_safety_order_buying_price = safety_order_limit_price
+			previous_safety_order_volume = safety_order_volume
+		}
+	}
+
+	acct, err := alpacaClient.GetAccount()
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	fmt.Println("Total Funds needed for strategy: ", total_buying_price)
+
+	if buying_power, _ := acct.BuyingPower.Float64(); buying_power < total_buying_price {
+		customError.S = "Insufficient Funds to create Strategy"
+		helper.GetError(&customError, w)
+		return
+	}
 
 	var active_deals int64 = 0
 	for _, v := range dealsArray {
@@ -627,6 +673,7 @@ func updateStrategy(w http.ResponseWriter, r *http.Request) {
 					"base_order_size":               strategy.BaseOrderSize,
 					"safety_order_size":             strategy.SafetyOrderSize,
 					"safety_order_volume_scale":     strategy.SafetyOrderVolumeScale,
+					"stop_loss_percent":             strategy.StopLossPercent,
 				}
 
 				dealHistory := bson.M{
@@ -830,6 +877,7 @@ func createDeal(strategy models.Strategy) (dealsArray []models.DealJson, msg str
 			"base_order_size":               strategy.BaseOrderSize,
 			"safety_order_size":             strategy.SafetyOrderSize,
 			"safety_order_volume_scale":     strategy.SafetyOrderVolumeScale,
+			"stop_loss_percent":             strategy.StopLossPercent,
 		}
 		insertDeal = append(insertDeal, deal)
 		dealHistory := bson.M{
@@ -1070,9 +1118,26 @@ func modifyDeal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if incomingbody.Status == "cancelled" {
-			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
-			err = updateResult.Decode(&deal)
+			if deal.Status == "running" { // the Bot was created in Non-Market hours
+				errMsg := algobot.StopBot(params["id"])
+				if errMsg != "" {
+					customError.S = errMsg
+					helper.GetError(&customError, w)
+					return
+				}
+				updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_cancelled_by_user": true, "status": "cancelled", "profit_percentage": "0", "profit_value": 0.0, "closed_at": time.Now().Format(time.RFC3339)}}, options.FindOneAndUpdate().SetReturnDocument(1))
+				err = updateResult.Decode(&deal)
+			} else {
+				updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_cancelled_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
+				err = updateResult.Decode(&deal)
+			}
 		} else {
+			errMsg := checkIfMarketOpen(deal.SelectedExchange, userId)
+			if errMsg != "" {
+				customError.S = "Cannot close deal at market price. " + errMsg
+				helper.GetError(&customError, w)
+				return
+			}
 			updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"deal_closed_at_market_price_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
 			err = updateResult.Decode(&deal)
 		}
@@ -1089,6 +1154,12 @@ func modifyDeal(w http.ResponseWriter, r *http.Request) {
 			helper.GetError(&customError, w)
 			return
 		}
+		errMsg := checkIfMarketOpen(deal.SelectedExchange, userId)
+		if errMsg != "" {
+			customError.S = "Cannot edit deal. " + errMsg
+			helper.GetError(&customError, w)
+			return
+		}
 		updateResult := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": bson.M{"max_active_safety_trade_count": incomingbody.MaxActiveSafetyTradeCount, "max_safety_trade_count": incomingbody.MaxSafetyTradeCount, "target_profit": incomingbody.TargetProfit, "stop_loss_percent": incomingbody.StopLossPercent, "deal_edited_by_user": true}}, options.FindOneAndUpdate().SetReturnDocument(1))
 		err = updateResult.Decode(&deal)
 		if err != nil {
@@ -1100,6 +1171,38 @@ func modifyDeal(w http.ResponseWriter, r *http.Request) {
 		customError.S = fmt.Sprintf("Not enough parameters to perform required action on the Deal")
 		helper.GetError(&customError, w)
 		return
+	}
+
+}
+
+func checkIfMarketOpen(incoming_exchange_id, userId string) string {
+	var exchange models.Exchange
+
+	exchange_id, _ := primitive.ObjectIDFromHex(incoming_exchange_id)
+	resultReadExchange := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": exchange_id, "user_id": userId})
+	if err := resultReadExchange.Decode(&exchange); err != nil {
+		return fmt.Sprintf("Could not find Exchange with Id %s: %v", incoming_exchange_id, err)
+	}
+	if exchange.SelectedExchange == "Alpaca" {
+		if exchange.ExchangeType == "paper_trading" {
+			alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+		} else if exchange.ExchangeType == "live_trading" {
+			alpaca.SetBaseUrl("https://api.alpaca.markets")
+		}
+		os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
+		os.Setenv(common.EnvApiSecretKey, exchange.ApiSecret)
+		alpacaClient := alpaca.NewClient(common.Credentials())
+		clock, err := alpacaClient.GetClock()
+		if err != nil {
+			return err.Error()
+		}
+		if clock.IsOpen == false {
+			return fmt.Sprintf("The market is closed right now. Please retry in %v", clock.NextOpen.Sub(time.Now()))
+		} else {
+			return ""
+		}
+	} else {
+		return "Invalid Exchange"
 	}
 
 }
@@ -1164,6 +1267,18 @@ func buyMoreInADeal(w http.ResponseWriter, r *http.Request) {
 		} else if exchangeDataRead.ExchangeType == "live_trading" {
 			alpaca.SetBaseUrl("https://api.alpaca.markets")
 		}
+
+		alpacaClient := alpaca.NewClient(common.Credentials())
+		clock, err := alpacaClient.GetClock()
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if clock.IsOpen == false {
+			customError.S = fmt.Sprintf("Cannot buy more. The market is closed right now. Please retry in %v", clock.NextOpen.Sub(time.Now()))
+			helper.GetError(&customError, w)
+			return
+		}
 		placeOrderRequest := alpaca.PlaceOrderRequest{}
 
 		if buymoreRequest.Symbol == "" {
@@ -1191,7 +1306,6 @@ func buyMoreInADeal(w http.ResponseWriter, r *http.Request) {
 		}
 		placeOrderRequest.Type = alpaca.Market
 		placeOrderRequest.TimeInForce = alpaca.Day
-		alpacaClient := alpaca.NewClient(common.Credentials())
 
 		orderPlaced, err := alpacaClient.PlaceOrder(placeOrderRequest)
 
@@ -1289,6 +1403,229 @@ func getAccountInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(accountinfo)
 }
 
+func getAccountProfit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	//create Model
+	var accountprofit models.AccountProfit
+
+	var todays_profit float64
+	var total_profit float64
+	var completed_profit float64
+
+	//Get a User's Exchange
+	var exchange models.Exchange
+	var exchangefound bool
+	var alpacaClient *alpaca.Client
+	exchangeDbResult := exchangeCollection.FindOne(context.TODO(), bson.M{"user_id": userId, "active": true, "selected_exchange": "Alpaca"})
+	if err := exchangeDbResult.Decode(&exchange); err == nil {
+		//Set alpaca parameters.
+		os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
+		os.Setenv(common.EnvApiSecretKey, exchange.ApiSecret)
+		if exchange.ExchangeType == "paper_trading" {
+			alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+		} else if exchange.ExchangeType == "live_trading" {
+			alpaca.SetBaseUrl("https://api.alpaca.markets")
+		}
+		alpacaClient = alpaca.NewClient(common.Credentials())
+		exchangefound = true
+	}
+
+	// Today's Profit &&
+	statuses := [3]string{"bought", "completed", "cancelled"}
+	cur, err := dealsCollection.Find(context.TODO(), bson.M{"user_id": userId, "status": bson.M{"$in": statuses}})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	defer cur.Close(context.TODO())
+	currentTimestamp := time.Now()
+	for cur.Next(context.TODO()) {
+		var deal models.Deal
+		err := cur.Decode(&deal) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		if deal.Status == "bought" {
+			if exchangefound == true {
+				currentAssetPrice := GetCurrentAssetPrice(deal.Stock, alpacaClient)
+				todays_profit += ((currentAssetPrice * float64(deal.TotalOrderQuantity)) - deal.TotalBuyingPrice)
+				total_profit += ((currentAssetPrice * float64(deal.TotalOrderQuantity)) - deal.TotalBuyingPrice)
+			}
+		} else if deal.Status == "cancelled" {
+			if DateEqual(currentTimestamp, deal.ClosedAt) == true {
+				todays_profit += deal.ProfitValue
+			}
+			total_profit += deal.ProfitValue
+			completed_profit += deal.ProfitValue
+		} else if deal.Status == "completed" {
+			if DateEqual(currentTimestamp, deal.ClosedAt) == true {
+				todays_profit += deal.ProfitValue
+			}
+			total_profit += deal.ProfitValue
+			completed_profit += deal.ProfitValue
+		}
+	}
+	// Number of Active Deals
+	statusArr := [2]string{"running", "bought"}
+	dealCount, err := dealsCollection.CountDocuments(context.TODO(), bson.M{"user_id": userId, "status": bson.M{"$in": statusArr}})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	todProf, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", todays_profit), 64)
+	accountprofit.TodaysProfit = todProf
+
+	//accountprofit.TodaysProfit = todays_profit
+	totProf, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", total_profit), 64)
+	accountprofit.TotalProfit = totProf
+
+	//accountprofit.TotalProfit = total_profit
+	comProf, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", completed_profit), 64)
+	accountprofit.CompletedProfit = comProf
+	//accountprofit.CompletedProfit = completed_profit
+
+	accountprofit.ActiveDeals = dealCount
+	json.NewEncoder(w).Encode(accountprofit)
+}
+
+func getStrategyProfit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customError models.ErrorString
+
+	var params = mux.Vars(r)
+	if params["id"] == "" {
+		customError.S = "Strategy Id cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	token := r.Header.Get("token")
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	_, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	strategy_id := params["id"]
+	var timestampArray [5]int64
+	t := time.Now().UTC()
+	t1 := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, t.Nanosecond(), t.Location())
+
+	timestampArray[0] = t1.Unix()
+
+	for i := 1; i < 5; i++ {
+		timestampArray[i] = t1.AddDate(0, 0, -i).Unix()
+	}
+
+	var profitsArray [5]float64
+	for i := 1; i < 5; i++ {
+		var strategy_profit models.Strategy_Profits
+		err := strategy_profitsCollection.FindOne(context.TODO(), bson.M{"strategy_id": strategy_id, "created_at": time.Unix(timestampArray[i], 0).Format(time.RFC3339)}).Decode(&strategy_profit)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				continue
+			}
+		}
+		profitsArray[i] = strategy_profit.ProfitValue
+
+	}
+
+	// Calculate today's profit
+	statusArr := [3]string{"bought", "completed", "cancelled"}
+	cur, err := dealsCollection.Find(context.TODO(), bson.M{"strategy_id": strategy_id, "status": bson.M{"$in": statusArr}})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	defer cur.Close(context.TODO())
+
+	for cur.Next(context.TODO()) {
+		var deal models.Deal
+		err := cur.Decode(&deal) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+
+		exchange_id, _ := primitive.ObjectIDFromHex(deal.SelectedExchange)
+		var exchange models.Exchange
+		var alpacaClient *alpaca.Client
+		exchangeDbResult := exchangeCollection.FindOne(context.TODO(), bson.M{"_id": exchange_id, "active": true, "selected_exchange": "Alpaca"})
+		if err := exchangeDbResult.Decode(&exchange); err == nil {
+			//Set alpaca parameters.
+			os.Setenv(common.EnvApiKeyID, exchange.ApiKey)
+			os.Setenv(common.EnvApiSecretKey, exchange.ApiSecret)
+			if exchange.ExchangeType == "paper_trading" {
+				alpaca.SetBaseUrl("https://paper-api.alpaca.markets")
+			} else if exchange.ExchangeType == "live_trading" {
+				alpaca.SetBaseUrl("https://api.alpaca.markets")
+			}
+			alpacaClient = alpaca.NewClient(common.Credentials())
+		}
+		if deal.Status == "bought" {
+
+			currentAssetPrice := GetCurrentAssetPrice(deal.Stock, alpacaClient)
+			profitsArray[0] += ((currentAssetPrice * float64(deal.TotalOrderQuantity)) - deal.TotalBuyingPrice)
+
+		} else if deal.Status == "cancelled" {
+			if DateEqual(t1, deal.ClosedAt) == true {
+				profitsArray[0] += deal.ProfitValue
+			}
+		} else if deal.Status == "completed" {
+			if DateEqual(t1, deal.ClosedAt) == true {
+				profitsArray[0] += deal.ProfitValue
+			}
+		}
+	}
+
+	var response models.Profits_Response
+	response.Timestamp = timestampArray
+	response.Profits = profitsArray
+	json.NewEncoder(w).Encode(response)
+
+}
+
+func GetCurrentAssetPrice(asset string, alpacaClient *alpaca.Client) float64 {
+	latestQuote, err := alpacaClient.GetLatestQuote(asset)
+	if err != nil {
+		for {
+			latestQuote, err = alpacaClient.GetLatestQuote(asset)
+			if err == nil && latestQuote.AskPrice != 0.0 {
+				break
+			}
+		}
+	}
+	return latestQuote.AskPrice
+}
+func DateEqual(date1, date2 time.Time) bool {
+	y1, m1, d1 := date1.Date()
+	y2, m2, d2 := date2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
 var strategyCollection *mongo.Collection
 var eventHistoryCollection *mongo.Collection
 var strategy_revisionsCollection *mongo.Collection
@@ -1296,10 +1633,11 @@ var dealsCollection *mongo.Collection
 var exchangeCollection *mongo.Collection
 var assetsCollection *mongo.Collection
 var orderCollection *mongo.Collection
+var strategy_profitsCollection *mongo.Collection
 
 func init() {
 	//Connect to mongoDB with helper class
-	strategyCollection, eventHistoryCollection, strategy_revisionsCollection, dealsCollection, exchangeCollection, assetsCollection, orderCollection = helper.ConnectDB()
+	strategyCollection, eventHistoryCollection, strategy_revisionsCollection, dealsCollection, exchangeCollection, assetsCollection, orderCollection, strategy_profitsCollection = helper.ConnectDB()
 }
 
 func main() {
@@ -1318,8 +1656,14 @@ func main() {
 	r.HandleFunc("/StrategyService/api/v1/deals/{id}", modifyDeal).Methods("PUT")
 	r.HandleFunc("/StrategyService/api/v1/deals/buymore", buyMoreInADeal).Methods("POST")
 
+	//Account Info
 	r.HandleFunc("/StrategyService/api/v1/accountinfo/{id}", getAccountInfo).Methods("GET")
 
+	//Get Profit Values for your account.
+	r.HandleFunc("/StrategyService/api/v1/accountprofit", getAccountProfit).Methods("GET")
+
+	//Get Strategy Profits
+	r.HandleFunc("/StrategyService/api/v1/strategyprofit/{id}", getStrategyProfit).Methods("GET")
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {
 		log.Fatal(err)

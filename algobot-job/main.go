@@ -11,6 +11,7 @@ import (
 
 	"github.com/alpacahq/alpaca-trade-api-go/alpaca"
 	"github.com/alpacahq/alpaca-trade-api-go/common"
+	"github.com/shopspring/decimal"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/algobot-job/helper"
 	"github.com/vikjdk7/Algotrading-GoLang-Rest/algobot-job/models"
 	orderpackage "github.com/vikjdk7/Algotrading-GoLang-Rest/algobot-job/orders"
@@ -22,8 +23,9 @@ import (
 
 var (
 	//Mongo Variables
-	orderCollection *mongo.Collection
-	dealsCollection *mongo.Collection
+	orderCollection    *mongo.Collection
+	dealsCollection    *mongo.Collection
+	strategyCollection *mongo.Collection
 
 	// Base Order Variables
 	base_order_size       float64
@@ -56,10 +58,11 @@ var (
 	alpaca_url        string
 
 	//Deal Variables
-	user_id     string
-	exchange_id string
-	deal_id     string
-	strategy_id string
+	user_id       string
+	exchange_id   string
+	deal_id       string
+	strategy_id   string
+	strategy_name string
 
 	clock  *alpaca.Clock
 	orders []models.OrdersData
@@ -67,28 +70,28 @@ var (
 
 func init() {
 	//Connect to mongoDB with helper class
-	orderCollection, dealsCollection = helper.ConnectDB()
+	orderCollection, dealsCollection, strategyCollection = helper.ConnectDB()
 
 	fmt.Println("--------------------Process Starting --------------------")
-
-	os.Setenv("base_order_size", "15.0")
-	os.Setenv("target_profit_percent", "1.0")
-	os.Setenv("safety_order_size", "10.0")
-	os.Setenv("max_safety_order_count", "4")
-	os.Setenv("max_active_safety_order_count", "2")
-	os.Setenv("price_deviation", "1.0")
-	os.Setenv("safety_order_step_scale", "0.0")
-	os.Setenv("safety_order_volume_scale", "1.5")
-	os.Setenv("stop_loss_percent", "2.0")
-	os.Setenv("asset", "ASMB")
-	os.Setenv("alpaca_api_key", "PKX55YM3PYOL8T8LBNML")
-	os.Setenv("alpaca_api_secret", "ftlFvZpoRC05VUfJdzPJAsyp4HXT6tKhvm8sqFGN")
-	os.Setenv("alpaca_url", "https://paper-api.alpaca.markets")
-	os.Setenv("user_id", "1234567890")
-	os.Setenv("exchange_id", "2345678901")
-	os.Setenv("deal_id", "60fa84ce53b41035b5f4e3fa")
-	os.Setenv("strategy_id", "45678901")
-
+	/*
+		os.Setenv("base_order_size", "15.0")
+		os.Setenv("target_profit_percent", "1.0")
+		os.Setenv("safety_order_size", "10.0")
+		os.Setenv("max_safety_order_count", "4")
+		os.Setenv("max_active_safety_order_count", "2")
+		os.Setenv("price_deviation", "1.0")
+		os.Setenv("safety_order_step_scale", "0.0")
+		os.Setenv("safety_order_volume_scale", "1.5")
+		os.Setenv("stop_loss_percent", "2.0")
+		os.Setenv("asset", "ASMB")
+		os.Setenv("alpaca_api_key", "PKX55YM3PYOL8T8LBNML")
+		os.Setenv("alpaca_api_secret", "ftlFvZpoRC05VUfJdzPJAsyp4HXT6tKhvm8sqFGN")
+		os.Setenv("alpaca_url", "https://paper-api.alpaca.markets")
+		os.Setenv("user_id", "1234567890")
+		os.Setenv("exchange_id", "2345678901")
+		os.Setenv("deal_id", "60fa84ce53b41035b5f4e3fa")
+		os.Setenv("strategy_id", "45678901")
+	*/
 	fmt.Println("--------------------Reading ENV Variables--------------------")
 	base_order_size, _ = strconv.ParseFloat(os.Getenv("base_order_size"), 64)
 	target_profit_percent, _ = strconv.ParseFloat(os.Getenv("target_profit_percent"), 64)
@@ -113,9 +116,12 @@ func init() {
 	exchange_id = os.Getenv("exchange_id")
 	deal_id = os.Getenv("deal_id")
 	strategy_id = os.Getenv("strategy_id")
+	strategy_name = os.Getenv("strategy_name")
 }
 
 func main() {
+
+	fmt.Println(fmt.Sprintf("Bot will run with Parameters: base_order_size: %v, target_profit_percent: %v, stop_loss_percent: %v, asset: %v, safety_order_size: %v, max_safety_order_count: %v, max_active_safety_order_count: %v, price_deviation: %v, safety_order_step_scale: %v, safety_order_volume_scale: %v, user_id: %v, exchange_id: %v, deal_id: %v, strategy_id: %v", base_order_size, target_profit_percent, stop_loss_percent, asset, safety_order_size, max_safety_order_count, max_active_safety_order_count, price_deviation, safety_order_step_scale, safety_order_volume_scale, user_id, exchange_id, deal_id, strategy_id))
 
 	fmt.Println("--------------------Starting BOT--------------------")
 	SetAlpacaParameters(alpaca_url, alpaca_api_key, alpaca_api_secret)
@@ -150,22 +156,21 @@ func main() {
 
 	fmt.Println("The market is open.")
 
-	fmt.Println(fmt.Sprintf("Bot will run with Parameters: base_order_size: %v, target_profit_percent: %v, stop_loss_percent: %v, asset: %v, safety_order_size: %v, max_safety_order_count: %v, max_active_safety_order_count: %v, price_deviation: %v, safety_order_step_scale: %v, safety_order_volume_scale: %v, user_id: %v, exchange_id: %v, deal_id: %v, strategy_id: %v", base_order_size, target_profit_percent, stop_loss_percent, asset, safety_order_size, max_safety_order_count, max_active_safety_order_count, price_deviation, safety_order_step_scale, safety_order_volume_scale, user_id, exchange_id, deal_id, strategy_id))
-
-	var order models.Order
+	var order models.OrderMongo
 	//Get Current AssetPrice
 	initial_buying_price := GetCurrentAssetPrice(alpacaClient)
 	//initial_buying_price := 3.90
 	fmt.Println(fmt.Sprintf("Current Price of asset %v is %v", asset, initial_buying_price))
 
 	//Calculate initial order quantity
-	initial_order_quantity := int64(base_order_size / initial_buying_price)
+	initial_order_quantity := int64(base_order_size)
 	fmt.Println(fmt.Sprintf("initial_order_quantity is : %v", initial_order_quantity))
 
 	total_buying_price = float64(initial_order_quantity) * initial_buying_price
 
 	//Place a BUY "Market Order"
 	fmt.Println("--------------------Step 1: Placing a BUY Market Order--------------------")
+
 	orderPlaced, err := orderpackage.PlaceOrder(alpacaClient, asset, initial_order_quantity, "BUY", "market", 0.0, 0.0)
 	if err != nil {
 		panic(err)
@@ -177,10 +182,24 @@ func main() {
 		if orderDetails.Status == "filled" {
 			jsonOrder, _ := json.Marshal(orderDetails)
 			_ = json.Unmarshal(jsonOrder, &order)
+			order.Qty, _ = orderDetails.Qty.Float64()
+			order.Notional, _ = orderDetails.Notional.Float64()
+			order.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+			if orderDetails.LimitPrice != nil {
+				order.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+			}
+			if orderDetails.FilledAvgPrice != nil {
+				order.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+			}
+			if orderDetails.StopPrice != nil {
+				order.StopPrice, _ = orderDetails.StopPrice.Float64()
+			}
 			order.UserId = user_id
 			order.StrategyId = strategy_id
 			order.ExchangeId = exchange_id
 			order.DealId = deal_id
+			order.StrategyName = strategy_name
 			total_buying_quantity = orderDetails.FilledQty.IntPart()
 			initial_buying_price, _ = (*orderDetails.FilledAvgPrice).Float64()
 			avg_buying_price = initial_buying_price
@@ -235,9 +254,23 @@ func main() {
 			orders = append(orders, orders_data)
 			jsonOrder, _ := json.Marshal(sellOrderPlaced)
 			_ = json.Unmarshal(jsonOrder, &order)
+			order.Qty, _ = sellOrderPlaced.Qty.Float64()
+			order.Notional, _ = sellOrderPlaced.Notional.Float64()
+			order.FilledQty, _ = sellOrderPlaced.FilledQty.Float64()
+
+			if sellOrderPlaced.LimitPrice != nil {
+				order.LimitPrice, _ = sellOrderPlaced.LimitPrice.Float64()
+			}
+			if sellOrderPlaced.FilledAvgPrice != nil {
+				order.FilledAvgPrice, _ = sellOrderPlaced.FilledAvgPrice.Float64()
+			}
+			if sellOrderPlaced.StopPrice != nil {
+				order.StopPrice, _ = sellOrderPlaced.StopPrice.Float64()
+			}
 			order.UserId = user_id
 			order.StrategyId = strategy_id
 			order.ExchangeId = exchange_id
+			order.StrategyName = strategy_name
 			order.DealId = deal_id
 			for {
 				_, err = orderCollection.InsertOne(context.TODO(), order)
@@ -253,7 +286,7 @@ func main() {
 
 	fmt.Println("--------------------Step 3: Placing Stop Limit BUY Safety Orders--------------------")
 	previous_safety_order_buying_price = initial_buying_price
-	previous_safety_order_volume = safety_order_size
+	//previous_safety_order_volume = safety_order_size
 	previous_safety_order_deviation = price_deviation
 	for i := int64(0); i < max_active_safety_order_count; i++ {
 		safety_order_step := previous_safety_order_step_scale * safety_order_step_scale
@@ -263,11 +296,16 @@ func main() {
 		if current_asset_price := GetCurrentAssetPrice(alpacaClient); current_asset_price < safety_order_stop_price {
 			safety_order_stop_price = current_asset_price
 		}
-		safety_order_volume := previous_safety_order_volume
-		if i != 0 {
-			safety_order_volume = safety_order_volume * safety_order_volume_scale
+
+		var safety_order_quantity int64
+		var safety_order_volume float64
+		if i == 0 {
+			safety_order_quantity = int64(safety_order_size)
+			safety_order_volume = safety_order_size * safety_order_limit_price
+		} else {
+			safety_order_volume = previous_safety_order_volume * safety_order_volume_scale
+			safety_order_quantity = int64(safety_order_volume / safety_order_limit_price)
 		}
-		safety_order_quantity := int64(safety_order_volume / safety_order_limit_price)
 
 		//Place a BUY Safety Order
 		fmt.Println(fmt.Sprintf("Safety Order %v. Safety order buying Price: %v, safety order step: %v, Safety Order total deviation: %v", i+1, previous_safety_order_buying_price, safety_order_step, safety_order_deviation))
@@ -282,9 +320,23 @@ func main() {
 				orders = append(orders, orders_data)
 				jsonOrder, _ := json.Marshal(buySafetyOrderPlaced)
 				_ = json.Unmarshal(jsonOrder, &order)
+				order.Qty, _ = buySafetyOrderPlaced.Qty.Float64()
+				order.Notional, _ = buySafetyOrderPlaced.Notional.Float64()
+				order.FilledQty, _ = buySafetyOrderPlaced.FilledQty.Float64()
+
+				if buySafetyOrderPlaced.LimitPrice != nil {
+					order.LimitPrice, _ = buySafetyOrderPlaced.LimitPrice.Float64()
+				}
+				if buySafetyOrderPlaced.FilledAvgPrice != nil {
+					order.FilledAvgPrice, _ = buySafetyOrderPlaced.FilledAvgPrice.Float64()
+				}
+				if buySafetyOrderPlaced.StopPrice != nil {
+					order.StopPrice, _ = buySafetyOrderPlaced.StopPrice.Float64()
+				}
 				order.UserId = user_id
 				order.StrategyId = strategy_id
 				order.ExchangeId = exchange_id
+				order.StrategyName = strategy_name
 				order.DealId = deal_id
 				for {
 					_, err = orderCollection.InsertOne(context.TODO(), order)
@@ -331,28 +383,40 @@ func main() {
 	dealEdited := make(chan bool)
 	dealBuyMore := make(chan bool)
 	dealCompleted := make(chan bool)
-	go CheckDealStatus(deal_id, dealCancelled, dealClosedAtMarketPrice, dealEdited, dealBuyMore)
+	dealEditCompleted := make(chan bool)
+	go CheckDealStatus(deal_id, dealCancelled, dealClosedAtMarketPrice, dealEdited, dealBuyMore, dealEditCompleted)
 	go CheckOrderStatus(alpacaClient, dealCompleted)
-	for {
+F:
+	for range time.Tick(time.Second * 2) {
+	S:
 		select {
 		case <-dealCancelled:
 			fmt.Println("Deal Cancelled manually by user")
 			CancelAllNonFilledOrders(alpacaClient)
-			return
+			break F
 
 		case <-dealClosedAtMarketPrice:
 			fmt.Println("Deal closed at market Price by user")
 			CloseAtMarketPrice(alpacaClient)
-			return
+			break F
 
 		case <-dealCompleted:
 			fmt.Println("Target Profit Reached. Cancelling unfilled orders.")
 			CalculateProfitAndCancelUnfilledOrders(alpacaClient)
-			return
+			break F
 
 		case <-dealBuyMore:
 			fmt.Println("More Stocks bought by the user")
 			HandleBuyMoreStocks(alpacaClient)
+			break S
+
+		case <-dealEdited:
+			fmt.Println("Deal Edited by User")
+			HandleDealEdit(alpacaClient, dealEditCompleted)
+			break S
+
+		default:
+
 		}
 	}
 
@@ -367,7 +431,7 @@ func SetAlpacaParameters(baseUrl string, api_key string, api_secret string) {
 
 func GetCurrentAssetPrice(alpacaClient *alpaca.Client) float64 {
 	latestQuote, err := alpacaClient.GetLatestQuote(asset)
-	if err != nil {
+	if err != nil || latestQuote.AskPrice == 0.0 {
 		for {
 			latestQuote, err = alpacaClient.GetLatestQuote(asset)
 			if err == nil && latestQuote.AskPrice != 0.0 {
@@ -382,9 +446,10 @@ func CheckOrderStatus(alpacaClient *alpaca.Client, dealCompleted chan bool) {
 	fmt.Println("Checking Order Status Every Second")
 
 	var dealCompletedVar bool
-	for range time.Tick(time.Second * 1) {
+	for range time.Tick(time.Second * 2) {
 
 		for _, o := range orders {
+			o.Mu.Lock()
 			if o.OrderType == "SELL" {
 				sellOrderId := orders[1].OrderId
 				sellOrderDetails, err := alpacaClient.GetOrder(sellOrderId)
@@ -395,9 +460,10 @@ func CheckOrderStatus(alpacaClient *alpaca.Client, dealCompleted chan bool) {
 					break
 				}
 			} else if o.OrderType == "SO" && o.OrderStatus != "filled" {
+				fmt.Println(fmt.Sprintf("Checking Order Status for Order Id: %v", o.OrderId))
 				orderDetails, err := alpacaClient.GetOrder(o.OrderId)
 				if err != nil && orderDetails.Status == "filled" {
-					var order models.Order
+					var order models.OrderMongo
 					fmt.Println("Safety Order %v is filled", o.OrderId)
 					fmt.Println("Step 1: Updating SELL Order")
 					so_quantity := orderDetails.FilledQty.IntPart()
@@ -425,10 +491,24 @@ func CheckOrderStatus(alpacaClient *alpaca.Client, dealCompleted chan bool) {
 
 						jsonOrder, _ := json.Marshal(sellOrderPlaced)
 						_ = json.Unmarshal(jsonOrder, &order)
+						order.Qty, _ = sellOrderPlaced.Qty.Float64()
+						order.Notional, _ = sellOrderPlaced.Notional.Float64()
+						order.FilledQty, _ = sellOrderPlaced.FilledQty.Float64()
+
+						if sellOrderPlaced.LimitPrice != nil {
+							order.LimitPrice, _ = sellOrderPlaced.LimitPrice.Float64()
+						}
+						if sellOrderPlaced.FilledAvgPrice != nil {
+							order.FilledAvgPrice, _ = sellOrderPlaced.FilledAvgPrice.Float64()
+						}
+						if sellOrderPlaced.StopPrice != nil {
+							order.StopPrice, _ = sellOrderPlaced.StopPrice.Float64()
+						}
 						order.UserId = user_id
 						order.StrategyId = strategy_id
 						order.ExchangeId = exchange_id
 						order.DealId = deal_id
+						order.StrategyName = strategy_name
 						for {
 							_, err = orderCollection.InsertOne(context.TODO(), order)
 							if err == nil {
@@ -462,10 +542,24 @@ func CheckOrderStatus(alpacaClient *alpaca.Client, dealCompleted chan bool) {
 						orders = append(orders, orders_data)
 						jsonOrder, _ := json.Marshal(buySafetyOrderPlaced)
 						_ = json.Unmarshal(jsonOrder, &order)
+						order.Qty, _ = buySafetyOrderPlaced.Qty.Float64()
+						order.Notional, _ = buySafetyOrderPlaced.Notional.Float64()
+						order.FilledQty, _ = buySafetyOrderPlaced.FilledQty.Float64()
+
+						if buySafetyOrderPlaced.LimitPrice != nil {
+							order.LimitPrice, _ = buySafetyOrderPlaced.LimitPrice.Float64()
+						}
+						if buySafetyOrderPlaced.FilledAvgPrice != nil {
+							order.FilledAvgPrice, _ = buySafetyOrderPlaced.FilledAvgPrice.Float64()
+						}
+						if buySafetyOrderPlaced.StopPrice != nil {
+							order.StopPrice, _ = buySafetyOrderPlaced.StopPrice.Float64()
+						}
 						order.UserId = user_id
 						order.StrategyId = strategy_id
 						order.ExchangeId = exchange_id
 						order.DealId = deal_id
+						order.StrategyName = strategy_name
 						for {
 							_, err = orderCollection.InsertOne(context.TODO(), order)
 							if err == nil {
@@ -484,7 +578,7 @@ func CheckOrderStatus(alpacaClient *alpaca.Client, dealCompleted chan bool) {
 					o.OrderStatus = "filled"
 				}
 			}
-
+			o.Mu.Unlock()
 		}
 		if dealCompletedVar == true {
 			break
@@ -516,16 +610,37 @@ func CancelOrder(orderid string, alpacaClient *alpaca.Client) {
 		}
 	}
 	if orderDetails.Status == "canceled" {
-		_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": orderid}, bson.M{"$set": orderDetails}, options.FindOneAndUpdate().SetReturnDocument(1))
+		var cancelledOrder models.OrderMongo
+		jsonOrder, _ := json.Marshal(orderDetails)
+		_ = json.Unmarshal(jsonOrder, &cancelledOrder)
+		cancelledOrder.Qty, _ = orderDetails.Qty.Float64()
+		cancelledOrder.Notional, _ = orderDetails.Notional.Float64()
+		cancelledOrder.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+		if orderDetails.LimitPrice != nil {
+			cancelledOrder.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+		}
+		if orderDetails.FilledAvgPrice != nil {
+			cancelledOrder.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+		}
+		if orderDetails.StopPrice != nil {
+			cancelledOrder.StopPrice, _ = orderDetails.StopPrice.Float64()
+		}
+		cancelledOrder.UserId = user_id
+		cancelledOrder.StrategyId = strategy_id
+		cancelledOrder.ExchangeId = exchange_id
+		cancelledOrder.DealId = deal_id
+		cancelledOrder.StrategyName = strategy_name
+		_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": orderid}, bson.M{"$set": cancelledOrder}, options.FindOneAndUpdate().SetReturnDocument(1))
 	}
 }
 
-func CheckDealStatus(deal_id string, dealCancelled, dealClosedAtMarketPrice, dealEdited, dealBuyMore chan bool) {
+func CheckDealStatus(deal_id string, dealCancelled, dealClosedAtMarketPrice, dealEdited, dealBuyMore, dealEditCompleted chan bool) {
 	var deal models.Deal
 	id, _ := primitive.ObjectIDFromHex(deal_id)
 
 	fmt.Println("Continuously checking deal status every second from Database")
-	for range time.Tick(time.Second * 1) {
+	for range time.Tick(time.Second * 2) {
 		err := dealsCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&deal)
 		if err != nil {
 			fmt.Println(err)
@@ -545,6 +660,10 @@ func CheckDealStatus(deal_id string, dealCancelled, dealClosedAtMarketPrice, dea
 			break
 		} else if deal.ManualOrderPlacedByUser == true {
 			dealBuyMore <- true
+		} else if deal.DealEditedByUser == true {
+			fmt.Println("Deal Edit Signal Detected")
+			dealEdited <- true
+			<-dealEditCompleted
 		}
 	}
 }
@@ -562,7 +681,7 @@ func HandleBuyMoreStocks(alpacaClient *alpaca.Client) {
 	}
 	defer cur.Close(context.TODO())
 	for cur.Next(context.TODO()) {
-		var order models.Order
+		var order models.OrderMongo
 		_ = cur.Decode(&order)
 		var found bool
 		for _, o := range orders {
@@ -610,10 +729,24 @@ func HandleBuyMoreStocks(alpacaClient *alpaca.Client) {
 
 				jsonOrder, _ := json.Marshal(sellOrderPlaced)
 				_ = json.Unmarshal(jsonOrder, &order)
+				order.Qty, _ = sellOrderPlaced.Qty.Float64()
+				order.Notional, _ = sellOrderPlaced.Notional.Float64()
+				order.FilledQty, _ = sellOrderPlaced.FilledQty.Float64()
+
+				if sellOrderPlaced.LimitPrice != nil {
+					order.LimitPrice, _ = sellOrderPlaced.LimitPrice.Float64()
+				}
+				if sellOrderPlaced.FilledAvgPrice != nil {
+					order.FilledAvgPrice, _ = sellOrderPlaced.FilledAvgPrice.Float64()
+				}
+				if sellOrderPlaced.StopPrice != nil {
+					order.StopPrice, _ = sellOrderPlaced.StopPrice.Float64()
+				}
 				order.UserId = user_id
 				order.StrategyId = strategy_id
 				order.ExchangeId = exchange_id
 				order.DealId = deal_id
+				order.StrategyName = strategy_name
 				for {
 					_, err = orderCollection.InsertOne(context.TODO(), order)
 					if err == nil {
@@ -648,10 +781,24 @@ func HandleBuyMoreStocks(alpacaClient *alpaca.Client) {
 						v.OrderStatus = "new"
 						jsonOrder, _ := json.Marshal(buySafetyOrderPlaced)
 						_ = json.Unmarshal(jsonOrder, &order)
+						order.Qty, _ = buySafetyOrderPlaced.Qty.Float64()
+						order.Notional, _ = buySafetyOrderPlaced.Notional.Float64()
+						order.FilledQty, _ = buySafetyOrderPlaced.FilledQty.Float64()
+
+						if buySafetyOrderPlaced.LimitPrice != nil {
+							order.LimitPrice, _ = buySafetyOrderPlaced.LimitPrice.Float64()
+						}
+						if buySafetyOrderPlaced.FilledAvgPrice != nil {
+							order.FilledAvgPrice, _ = buySafetyOrderPlaced.FilledAvgPrice.Float64()
+						}
+						if buySafetyOrderPlaced.StopPrice != nil {
+							order.StopPrice, _ = buySafetyOrderPlaced.StopPrice.Float64()
+						}
 						order.UserId = user_id
 						order.StrategyId = strategy_id
 						order.ExchangeId = exchange_id
 						order.DealId = deal_id
+						order.StrategyName = strategy_name
 						for {
 							_, err = orderCollection.InsertOne(context.TODO(), order)
 							if err == nil {
@@ -705,7 +852,28 @@ func CalculateProfitAndCancelUnfilledOrders(alpacaClient *alpaca.Client) {
 					}
 				}
 				if orderDetails.Status == "canceled" {
-					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": orderDetails}, options.FindOneAndUpdate().SetReturnDocument(1))
+					var cancelledOrder models.OrderMongo
+					jsonOrder, _ := json.Marshal(orderDetails)
+					_ = json.Unmarshal(jsonOrder, &cancelledOrder)
+					cancelledOrder.Qty, _ = orderDetails.Qty.Float64()
+					cancelledOrder.Notional, _ = orderDetails.Notional.Float64()
+					cancelledOrder.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+					if orderDetails.LimitPrice != nil {
+						cancelledOrder.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+					}
+					if orderDetails.FilledAvgPrice != nil {
+						cancelledOrder.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+					}
+					if orderDetails.StopPrice != nil {
+						cancelledOrder.StopPrice, _ = orderDetails.StopPrice.Float64()
+					}
+					cancelledOrder.UserId = user_id
+					cancelledOrder.StrategyId = strategy_id
+					cancelledOrder.ExchangeId = exchange_id
+					cancelledOrder.DealId = deal_id
+					cancelledOrder.StrategyName = strategy_name
+					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": cancelledOrder}, options.FindOneAndUpdate().SetReturnDocument(1))
 					break
 				}
 			}
@@ -727,17 +895,29 @@ func CalculateProfitAndCancelUnfilledOrders(alpacaClient *alpaca.Client) {
 	total_selling_quantity := sellOrder.FilledQty.IntPart()
 	selling_price, _ := (*sellOrder.FilledAvgPrice).Float64()
 	total_selling_price = selling_price * float64(total_selling_quantity)
-	profit_percentage := ((total_selling_price - total_buying_price) / total_buying_price) * 100
+	profit_value := total_selling_price - total_buying_price
+	profit_percentage := (profit_value / total_buying_price) * 100
 
-	update["profit_percentage"] = profit_percentage
+	update["profit_percentage"] = fmt.Sprintf("%.5f", profit_percentage)
+	update["profit_value"] = profit_value
 	update["total_sell_price"] = total_selling_price
 	update["active_safety_order_count"] = 0
+	update["closed_at"] = time.Now().Format(time.RFC3339)
 	for {
 		result := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": update})
 		if result.Err() == nil {
 			break
 		}
 	}
+	var strategy models.Strategy
+	strId, _ := primitive.ObjectIDFromHex(strategy_id)
+	_ = strategyCollection.FindOne(context.TODO(), bson.M{"_id": strId}).Decode(&strategy)
+	updateStr := bson.M{}
+	updateStr["active_deals"] = strategy.ActiveDeals - 1
+	if strategy.ActiveDeals-1 == 0 {
+		updateStr["status"] = "completed"
+	}
+	_ = strategyCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": strId}, bson.M{"$set": updateStr})
 }
 
 func CancelAllNonFilledOrders(alpacaClient *alpaca.Client) {
@@ -768,7 +948,28 @@ func CancelAllNonFilledOrders(alpacaClient *alpaca.Client) {
 					}
 				}
 				if orderDetails.Status == "canceled" {
-					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": orderDetails}, options.FindOneAndUpdate().SetReturnDocument(1))
+					var cancelledOrder models.OrderMongo
+					jsonOrder, _ := json.Marshal(orderDetails)
+					_ = json.Unmarshal(jsonOrder, &cancelledOrder)
+					cancelledOrder.Qty, _ = orderDetails.Qty.Float64()
+					cancelledOrder.Notional, _ = orderDetails.Notional.Float64()
+					cancelledOrder.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+					if orderDetails.LimitPrice != nil {
+						cancelledOrder.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+					}
+					if orderDetails.FilledAvgPrice != nil {
+						cancelledOrder.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+					}
+					if orderDetails.StopPrice != nil {
+						cancelledOrder.StopPrice, _ = orderDetails.StopPrice.Float64()
+					}
+					cancelledOrder.UserId = user_id
+					cancelledOrder.StrategyId = strategy_id
+					cancelledOrder.ExchangeId = exchange_id
+					cancelledOrder.DealId = deal_id
+					cancelledOrder.StrategyName = strategy_name
+					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": cancelledOrder}, options.FindOneAndUpdate().SetReturnDocument(1))
 					break
 				}
 			}
@@ -778,6 +979,8 @@ func CancelAllNonFilledOrders(alpacaClient *alpaca.Client) {
 	update := bson.M{}
 	update["status"] = "cancelled"
 	update["profit_percentage"] = "-100"
+	update["closed_at"] = time.Now().Format(time.RFC3339)
+	update["profit_value"] = (-1.0) * total_buying_price
 	update["active_safety_order_count"] = 0
 	for {
 		result := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": update})
@@ -785,6 +988,16 @@ func CancelAllNonFilledOrders(alpacaClient *alpaca.Client) {
 			break
 		}
 	}
+	var strategy models.Strategy
+	strId, _ := primitive.ObjectIDFromHex(strategy_id)
+	_ = strategyCollection.FindOne(context.TODO(), bson.M{"_id": strId}).Decode(&strategy)
+	updateStr := bson.M{}
+	updateStr["active_deals"] = strategy.ActiveDeals - 1
+	if strategy.ActiveDeals-1 == 0 {
+		updateStr["status"] = "completed"
+	}
+	_ = strategyCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": strId}, bson.M{"$set": updateStr})
+
 }
 
 func CloseAtMarketPrice(alpacaClient *alpaca.Client) {
@@ -810,7 +1023,7 @@ func CloseAtMarketPrice(alpacaClient *alpaca.Client) {
 		time.Sleep(diff)
 	}
 
-	var sellOrder models.Order
+	var sellOrder models.OrderMongo
 
 	for _, v := range orders {
 		if v.OrderStatus != "filled" {
@@ -822,13 +1035,28 @@ func CloseAtMarketPrice(alpacaClient *alpaca.Client) {
 						if orderDetails.Status == "filled" {
 							jsonOrder, _ := json.Marshal(orderDetails)
 							_ = json.Unmarshal(jsonOrder, &sellOrder)
+							sellOrder.Qty, _ = orderDetails.Qty.Float64()
+							sellOrder.Notional, _ = orderDetails.Notional.Float64()
+							sellOrder.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+							if orderDetails.LimitPrice != nil {
+								sellOrder.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+							}
+							if orderDetails.FilledAvgPrice != nil {
+								sellOrder.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+							}
+							if orderDetails.StopPrice != nil {
+								sellOrder.StopPrice, _ = orderDetails.StopPrice.Float64()
+							}
 							break
 						}
 					}
+
 					sellOrder.UserId = user_id
 					sellOrder.StrategyId = strategy_id
 					sellOrder.ExchangeId = exchange_id
 					sellOrder.DealId = deal_id
+					sellOrder.StrategyName = strategy_name
 					for {
 						_, err = orderCollection.InsertOne(context.TODO(), sellOrder)
 						if err == nil {
@@ -842,25 +1070,49 @@ func CloseAtMarketPrice(alpacaClient *alpaca.Client) {
 				fmt.Printf("Cancel Order %s", v.OrderId)
 				_ = alpacaClient.CancelOrder(v.OrderId)
 				orderDetails, _ := alpacaClient.GetOrder(v.OrderId)
+				var cancelledOrder models.OrderMongo
+				jsonOrder, _ := json.Marshal(orderDetails)
+				_ = json.Unmarshal(jsonOrder, &cancelledOrder)
+				cancelledOrder.Qty, _ = orderDetails.Qty.Float64()
+				cancelledOrder.Notional, _ = orderDetails.Notional.Float64()
+				cancelledOrder.FilledQty, _ = orderDetails.FilledQty.Float64()
+
+				if orderDetails.LimitPrice != nil {
+					cancelledOrder.LimitPrice, _ = orderDetails.LimitPrice.Float64()
+				}
+				if orderDetails.FilledAvgPrice != nil {
+					cancelledOrder.FilledAvgPrice, _ = orderDetails.FilledAvgPrice.Float64()
+				}
+				if orderDetails.StopPrice != nil {
+					cancelledOrder.StopPrice, _ = orderDetails.StopPrice.Float64()
+				}
+				cancelledOrder.UserId = user_id
+				cancelledOrder.StrategyId = strategy_id
+				cancelledOrder.ExchangeId = exchange_id
+				cancelledOrder.DealId = deal_id
+				cancelledOrder.StrategyName = strategy_name
 				if orderDetails.Status == "canceled" {
-					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": orderDetails}, options.FindOneAndUpdate().SetReturnDocument(1))
+					_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": v.OrderId}, bson.M{"$set": cancelledOrder}, options.FindOneAndUpdate().SetReturnDocument(1))
 					break
 				}
 			}
 		}
 
 	}
-	total_selling_quantity := sellOrder.FilledQty.IntPart()
-	selling_price, _ := (*sellOrder.FilledAvgPrice).Float64()
+	total_selling_quantity := int(sellOrder.FilledQty)
+	selling_price := sellOrder.FilledAvgPrice
 	total_selling_price := selling_price * float64(total_selling_quantity)
-	profit_percentage := ((total_selling_price - total_buying_price) / total_buying_price) * 100
+	profit_value := total_selling_price - total_buying_price
+	profit_percentage := (profit_value / total_buying_price) * 100
 
 	id, _ := primitive.ObjectIDFromHex(deal_id)
 	update := bson.M{}
 	update["status"] = "completed"
 	update["profit_percentage"] = fmt.Sprintf("%.5f", profit_percentage)
+	update["profit_value"] = profit_value
 	update["total_sell_price"] = total_selling_price
 	update["active_safety_order_count"] = 0
+	update["closed_at"] = time.Now().Format(time.RFC3339)
 
 	for {
 		result := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": update})
@@ -868,5 +1120,228 @@ func CloseAtMarketPrice(alpacaClient *alpaca.Client) {
 			break
 		}
 	}
+	var strategy models.Strategy
+	strId, _ := primitive.ObjectIDFromHex(strategy_id)
+	_ = strategyCollection.FindOne(context.TODO(), bson.M{"_id": strId}).Decode(&strategy)
+	updateStr := bson.M{}
+	updateStr["active_deals"] = strategy.ActiveDeals - 1
+	if strategy.ActiveDeals-1 == 0 {
+		updateStr["status"] = "completed"
+	}
+	_ = strategyCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": strId}, bson.M{"$set": updateStr})
+
+}
+
+func HandleDealEdit(alpacaClient *alpaca.Client, dealEditCompleted chan bool) {
+	// Check if the market is open now.
+
+	clock, err := alpacaClient.GetClock()
+	if err != nil {
+		for {
+			clock, err = alpacaClient.GetClock()
+			if err == nil {
+				break
+			}
+		}
+	}
+	if clock.IsOpen == false {
+		fmt.Println("The market is closed.")
+		t2 := clock.NextOpen
+		t1 := time.Now()
+		diff := t2.Sub(t1)
+		fmt.Printf("Market will open after: %v", diff)
+		fmt.Println(fmt.Sprintf("Sleeping for %v", diff))
+		time.Sleep(diff)
+	}
+
+	var deal models.Deal
+
+	id, _ := primitive.ObjectIDFromHex(deal_id)
+	err = dealsCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&deal)
+	if err != nil {
+		fmt.Println(err)
+		//RETRY
+		for {
+			err = dealsCollection.FindOne(context.TODO(), bson.M{"_id": id}).Decode(&deal)
+			if err == nil {
+				break
+			}
+		}
+	}
+	updateDeal := bson.M{}
+
+	if targetProfit, _ := strconv.ParseFloat(deal.TargetProfit, 64); targetProfit != target_profit_percent {
+		target_profit_percent = targetProfit
+		target_profit_value = (target_profit_percent * total_buying_price) / 100
+		fmt.Println(fmt.Sprintf("New Target profit value (in USD) to attain: %v ", target_profit_value))
+		sell_limit_price := (total_buying_price + target_profit_value) / float64(total_buying_quantity)
+		fmt.Println(fmt.Sprintf("New SELL Limit Price: %v", sell_limit_price))
+		total_selling_price = sell_limit_price * float64(total_buying_quantity)
+
+		// Sell stop price = 2% less than sell limit price
+		sell_stop_price := sell_limit_price * 0.98
+		current_asset_price := GetCurrentAssetPrice(alpacaClient)
+		if current_asset_price >= sell_limit_price {
+			// We are in profit already, sell at market price and close the bot.
+			fmt.Println(fmt.Sprintf("Current Asset Price: %v is greater than Sell Limit Price: %v. Hence the Bot is in profit already.", current_asset_price, sell_limit_price))
+			fmt.Println("Closing the deal at current market price.")
+			//goto closeDealAtMarketPrice
+			CloseAtMarketPrice(alpacaClient)
+			dealEditCompleted <- true
+		} else {
+			if current_asset_price > sell_stop_price {
+				sell_stop_price = current_asset_price
+			}
+			//Modifying the SELL Order.
+			replaceOrderRequest := alpaca.ReplaceOrderRequest{}
+			req_qty := decimal.NewFromInt(total_buying_quantity)
+			replaceOrderRequest.Qty = &req_qty
+			req_lim_price := decimal.NewFromFloat(sell_limit_price)
+			replaceOrderRequest.LimitPrice = &req_lim_price
+			req_stop_price := decimal.NewFromFloat(sell_stop_price)
+			replaceOrderRequest.StopPrice = &req_stop_price
+			replaceOrderRequest.TimeInForce = alpaca.GTC
+			orderPlaced, err := alpacaClient.ReplaceOrder(orders[1].OrderId, replaceOrderRequest)
+			if err != nil {
+				for {
+					orderPlaced, err = alpacaClient.ReplaceOrder(orders[1].OrderId, replaceOrderRequest)
+					if err == nil {
+						break
+					}
+				}
+			}
+			var order models.OrderMongo
+			jsonOrder, _ := json.Marshal(orderPlaced)
+			_ = json.Unmarshal(jsonOrder, &order)
+			order.Qty, _ = orderPlaced.Qty.Float64()
+			order.Notional, _ = orderPlaced.Notional.Float64()
+			order.FilledQty, _ = orderPlaced.FilledQty.Float64()
+
+			if orderPlaced.LimitPrice != nil {
+				order.LimitPrice, _ = orderPlaced.LimitPrice.Float64()
+			}
+			if orderPlaced.FilledAvgPrice != nil {
+				order.FilledAvgPrice, _ = orderPlaced.FilledAvgPrice.Float64()
+			}
+			if orderPlaced.StopPrice != nil {
+				order.StopPrice, _ = orderPlaced.StopPrice.Float64()
+			}
+			order.UserId = user_id
+			order.StrategyId = strategy_id
+			order.ExchangeId = exchange_id
+			order.DealId = deal_id
+			order.StrategyName = strategy_name
+			for {
+				_, err := orderCollection.InsertOne(context.TODO(), order)
+				if err == nil {
+					break
+				}
+			}
+			oldOrderDetails, _ := alpacaClient.GetOrder(orders[1].OrderId)
+			_ = orderCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": orders[1].OrderId}, bson.M{"$set": oldOrderDetails}, options.FindOneAndUpdate().SetReturnDocument(1))
+			orders[1].Mu.Lock()
+			orders[1].OrderId = order.ID
+			orders[1].Mu.Unlock()
+		}
+
+	}
+
+	if deal.MaxSafetyTradeCount != max_safety_order_count {
+		max_safety_order_count = deal.MaxSafetyTradeCount
+	}
+
+	if deal.MaxActiveSafetyTradeCount != max_active_safety_order_count {
+		max_active_safety_order_count = deal.MaxActiveSafetyTradeCount
+		var countSO int64 = 0
+		for _, v := range orders {
+			if v.OrderType == "SO" && v.OrderStatus != "filled" {
+				countSO++
+			}
+		}
+		if countSO < max_active_safety_order_count {
+			// Place more Safety Orders
+			fmt.Println("Count of currently active safety orders is less than maximum active safety order count. Hence placing more safety orders.")
+			var orders_data models.OrdersData
+			var order models.OrderMongo
+			for i := countSO; i < max_active_safety_order_count; i++ {
+				safety_order_step := previous_safety_order_step_scale * safety_order_step_scale
+				safety_order_deviation := previous_safety_order_deviation + safety_order_step
+				safety_order_limit_price := previous_safety_order_buying_price * (1.0 - (safety_order_deviation / 100))
+				safety_order_stop_price := safety_order_limit_price * 1.02
+				if current_asset_price := GetCurrentAssetPrice(alpacaClient); current_asset_price < safety_order_stop_price {
+					safety_order_stop_price = current_asset_price
+				}
+				safety_order_volume := previous_safety_order_volume
+				if i != 0 {
+					safety_order_volume = safety_order_volume * safety_order_volume_scale
+				}
+				safety_order_quantity := int64(safety_order_volume / safety_order_limit_price)
+				buySafetyOrderPlaced, err := orderpackage.PlaceOrder(alpacaClient, asset, safety_order_quantity, "BUY", "stop_limit", safety_order_limit_price, safety_order_stop_price)
+				if err == nil {
+					//fmt.Println(fmt.Sprintf("BUY Safety Order Placed: %v ", buySafetyOrderPlaced))
+					orders_data.OrderId = buySafetyOrderPlaced.ID
+					orders_data.OrderType = "SO"
+					orders_data.OrderStatus = "new"
+					orders = append(orders, orders_data)
+					jsonOrder, _ := json.Marshal(buySafetyOrderPlaced)
+					_ = json.Unmarshal(jsonOrder, &order)
+					order.Qty, _ = buySafetyOrderPlaced.Qty.Float64()
+					order.Notional, _ = buySafetyOrderPlaced.Notional.Float64()
+					order.FilledQty, _ = buySafetyOrderPlaced.FilledQty.Float64()
+
+					if buySafetyOrderPlaced.LimitPrice != nil {
+						order.LimitPrice, _ = buySafetyOrderPlaced.LimitPrice.Float64()
+					}
+					if buySafetyOrderPlaced.FilledAvgPrice != nil {
+						order.FilledAvgPrice, _ = buySafetyOrderPlaced.FilledAvgPrice.Float64()
+					}
+					if buySafetyOrderPlaced.StopPrice != nil {
+						order.StopPrice, _ = buySafetyOrderPlaced.StopPrice.Float64()
+					}
+					order.UserId = user_id
+					order.StrategyId = strategy_id
+					order.ExchangeId = exchange_id
+					order.DealId = deal_id
+					order.StrategyName = strategy_name
+					for {
+						_, err = orderCollection.InsertOne(context.TODO(), order)
+						if err == nil {
+							break
+						}
+					}
+				}
+				previous_safety_order_buying_price = safety_order_limit_price
+				previous_safety_order_volume = safety_order_volume
+				previous_safety_order_deviation = safety_order_deviation
+				previous_safety_order_step_scale = safety_order_step
+			}
+
+			fmt.Println(fmt.Sprintf("Orders Array: %v", orders))
+		} else if countSO > max_active_safety_order_count {
+			// Cancel some Safety Orders
+			fmt.Println("Count of currently safety orders is greater than maximum active safety order count. Hence cancelling last safety orders.")
+			for i := len(orders); countSO != max_active_safety_order_count; i-- {
+				fmt.Println(fmt.Sprintf("Cancelling Safety Order: %v", orders[i-1].OrderId))
+				CancelOrder(orders[i-1].OrderId, alpacaClient)
+				//orders[i-1].Mu.Lock()
+				orders = orders[:i-1]
+				//orders[i-1].Mu.Unlock()
+				countSO--
+			}
+			fmt.Println(fmt.Sprintf("Orders Array: %v", orders))
+		}
+	}
+	if stopLossPercent, _ := strconv.ParseFloat(deal.StopLossPercent, 64); stopLossPercent != stop_loss_percent {
+		stop_loss_percent = stopLossPercent
+	}
+	//id, _ = primitive.ObjectIDFromHex(deal_id)
+	updateDeal["deal_edited_by_user"] = false
+	for {
+		result := dealsCollection.FindOneAndUpdate(context.TODO(), bson.M{"_id": id}, bson.M{"$set": updateDeal})
+		if result.Err() == nil {
+			break
+		}
+	}
+	dealEditCompleted <- true
 
 }

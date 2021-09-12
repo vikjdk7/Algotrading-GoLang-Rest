@@ -78,8 +78,10 @@ type Deal struct {
 	ActiveSafetyOrderCount        int64              `json:"active_safety_order_count" bson:"active_safety_order_count"`
 	FilledSafetyOrderCount        int64              `json:"filled_safety_order_count" bson:"filled_safety_order_count"`
 	CreatedAt                     time.Time          `json:"created_at" bson:"created_at"`
+	ClosedAt                      time.Time          `json:"closed_at" bson:"closed_at"`
 	TotalOrderQuantity            int64              `json:"total_order_quantity" bson:"total_order_quantity"`
 	ProfitPercentage              string             `json:"profit_percentage" bson:"profit_percentage"`
+	ProfitValue                   float64            `json:"profit_value" bson:"profit_value"`
 	TotalBuyingPrice              float64            `json:"total_buying_price" bson:"total_buying_price"`
 	TotalSellPrice                float64            `json:"total_sell_price" bson:"total_sell_price"`
 	TargetProfit                  string             `json:"target_profit" bson:"target_profit"`
@@ -134,6 +136,8 @@ type AccountInfo struct {
 	MaxAmtStrategyUsage          decimal.Decimal `json:"max_amt_strategy_usage"`
 	MaxSafetyOrderPriceDeviation string          `json:"max_safety_order_price_deviation"`
 	AvailableBalance             float64         `json:"available_balance"`
+	BuyingPower                  decimal.Decimal `json:"buying_power`
+	Equity                       decimal.Decimal `json:"equity"`
 }
 
 type Exchange struct {
@@ -215,6 +219,7 @@ type Order struct {
 	ExchangeId     string           `json:"exchange_id" bson:"exchange_id"`
 	StrategyId     string           `json:"strategy_id" bson:"strategy_id"`
 	DealId         string           `json:"deal_id" bson:"deal_id"`
+	StrategyName   string           `json:"strategy_name" bson:"strategy_name"`
 }
 type OrderType string
 
@@ -245,3 +250,22 @@ const (
 	GTD TimeInForce = "gtd"
 	CLS TimeInForce = "cls"
 )
+
+type AccountProfit struct {
+	TodaysProfit    float64 `json:"todays_profit" bson:"todays_profit"`
+	TotalProfit     float64 `json:"total_profit" bson:"total_profit"`
+	ActiveDeals     int64   `json:"active_deals" bson:"active_deals"`
+	CompletedProfit float64 `json:"completed_profit" bson:"completed_profit"`
+}
+
+type Strategy_Profits struct {
+	StrategyId  string    `json:"strategy_id" bson:"strategy_id"`
+	UserId      string    `json:"user_id" bson:"user_id"`
+	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
+	ProfitValue float64   `json:"profit_value" bson:"profit_value"`
+}
+
+type Profits_Response struct {
+	Timestamp [5]int64   `json:"timestamps"`
+	Profits   [5]float64 `json:"profits"`
+}

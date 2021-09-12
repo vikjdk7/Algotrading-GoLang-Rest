@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection) {
+func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection, *mongo.Collection) {
 
 	//Uncomment to run locally
 	//os.Setenv("MONGODB_URL", "mongodb://127.0.0.1:27017")
@@ -40,8 +40,9 @@ func ConnectDB() (*mongo.Collection, *mongo.Collection, *mongo.Collection) {
 	exchangeCollection := mongoDB.Collection("exchange")
 	orderCollection := mongoDB.Collection("order")
 	assetsCollection := mongoDB.Collection("assets")
+	dealsCollection := mongoDB.Collection("deal")
 
-	return exchangeCollection, orderCollection, assetsCollection
+	return exchangeCollection, orderCollection, assetsCollection, dealsCollection
 }
 
 type ErrorResponse struct {

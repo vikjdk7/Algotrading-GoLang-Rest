@@ -1,11 +1,14 @@
 # Algotrading-GoLang-Rest
-Golang APIs using REST
+Golang A    PIs using REST
 
 ## Docker Operations
 
 1. Build a Docker Image
 ```
 docker build -t user-authentication-service .
+```
+```
+docker build -t user-subscription-service .
 ```
 ```
 docker build -t rest-exchange-service .
@@ -23,7 +26,13 @@ docker build -t rest-order-service .
 docker build -t rest-eventhistory-service .
 ```
 ```
+docker build -t rest-dashboard-service .
+```
+```
 docker build -t algobot-job .
+```
+```
+docker build -t strategy-profit-job .
 ```
 2. Tag the docker Image
 ```

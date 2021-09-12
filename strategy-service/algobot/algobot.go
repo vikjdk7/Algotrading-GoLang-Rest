@@ -28,7 +28,7 @@ func StartBot(strategy models.Strategy, dealId string, asset string, api_key str
 		return errMsg
 	}
 	containerimage := "hedgina/algobot-job:latest"
-	jobname := fmt.Sprintf("algobot-job-dealid-%s-", dealId)
+	jobname := fmt.Sprintf("algobot-job-dealid-%s", dealId)
 	errMsg = launchK8sJob(clientset, &containerimage, &jobname, strategy, dealId, asset, api_key, api_secret, alpaca_url)
 	if errMsg != "" {
 		wg.Done()
@@ -38,26 +38,21 @@ func StartBot(strategy models.Strategy, dealId string, asset string, api_key str
 	return ""
 }
 
-func StopBot(dealId string) {
-	fmt.Println(fmt.Sprintf("Stopping bot for Deal Id: %s", dealId))
+func StopBot(dealId string) string {
+	fmt.Println(fmt.Sprintf("Stopping bot and deleting Job for Deal Id: %s", dealId))
 	//ChangeDealStatus(dealId, "cancelled")
-}
-
-/*
-func RunAlgobot(strategy models.Strategy, dealId string, wg *sync.WaitGroup, startbotchannel chan bool, stopbotchannel chan string) {
-
-	for {
-		select {
-		case <-startbotchannel:
-			StartBot(strategy, dealId, wg)
-		case stopDealId := <-stopbotchannel:
-			if stopDealId == dealId {
-				StopBot(stopDealId)
-				return
-			}
-		}
+	clientset, errMsg := connectToK8s()
+	if errMsg != "" {
+		return errMsg
 	}
-}*/
+	jobname := fmt.Sprintf("algobot-job-dealid-%s", dealId)
+	fg := metav1.DeletePropagationForeground
+	deleteOptions := metav1.DeleteOptions{PropagationPolicy: &fg}
+	if err := clientset.BatchV1().Jobs("hedgina").Delete(context.TODO(), jobname, deleteOptions); err != nil {
+		return err.Error()
+	}
+	return ""
+}
 
 func connectToK8s() (*kubernetes.Clientset, string) {
 	// creates the in-cluster config
@@ -76,15 +71,16 @@ func connectToK8s() (*kubernetes.Clientset, string) {
 func launchK8sJob(clientset *kubernetes.Clientset, image *string, jobname *string, strategy models.Strategy, dealId string, asset string, api_key string, api_secret string, alpaca_url string) string {
 	jobs := clientset.BatchV1().Jobs("hedgina")
 	var backOffLimit int32 = 0
+	var ttlSecondsAfterFinished int32 = 259200 //3 Days = 259200 seconds. Job will be deleted 3 days after its completion
 	jobSpec := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: *jobname,
-			Namespace:    "hedgina",
+			Name:      *jobname,
+			Namespace: "hedgina",
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: *jobname,
+					GenerateName: *jobname + "-",
 					Namespace:    "hedgina",
 				},
 				Spec: v1.PodSpec{
@@ -151,6 +147,10 @@ func launchK8sJob(clientset *kubernetes.Clientset, image *string, jobname *strin
 									Value: strategy.Id.Hex(),
 								},
 								{
+									Name:  "strategy_name",
+									Value: strategy.StrategyName,
+								},
+								{
 									Name:  "alpaca_api_key",
 									Value: api_key,
 								},
@@ -168,7 +168,8 @@ func launchK8sJob(clientset *kubernetes.Clientset, image *string, jobname *strin
 					RestartPolicy: v1.RestartPolicyOnFailure,
 				},
 			},
-			BackoffLimit: &backOffLimit,
+			BackoffLimit:            &backOffLimit,
+			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
 		},
 	}
 	_, err := jobs.Create(context.TODO(), jobSpec, metav1.CreateOptions{})

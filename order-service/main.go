@@ -55,7 +55,7 @@ func placeOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var order models.Order
+	var order models.OrderMongo
 
 	if exchangeDataRead.SelectedExchange == "Alpaca" {
 		os.Setenv(common.EnvApiKeyID, exchangeDataRead.ApiKey)
@@ -179,9 +179,28 @@ func placeOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOrder, _ := json.Marshal(orderPlaced)
+		//fmt.Println("jsonOrder: ", jsonOrder)
 		_ = json.Unmarshal(jsonOrder, &order)
+		//order = orderPlaced
+
+		order.Qty, _ = orderPlaced.Qty.Float64()
+		order.Notional, _ = orderPlaced.Notional.Float64()
+		order.FilledQty, _ = orderPlaced.FilledQty.Float64()
+
+		if orderPlaced.LimitPrice != nil {
+			order.LimitPrice, _ = orderPlaced.LimitPrice.Float64()
+		}
+		if orderPlaced.FilledAvgPrice != nil {
+			order.FilledAvgPrice, _ = orderPlaced.FilledAvgPrice.Float64()
+		}
+		if orderPlaced.StopPrice != nil {
+			order.StopPrice, _ = orderPlaced.StopPrice.Float64()
+		}
+
 		order.UserId = userId
 		order.ExchangeId = orderRequest.ExchangeId
+
+		fmt.Println("Order: ", order)
 
 		_, err = orderCollection.InsertOne(context.TODO(), order)
 		if err != nil {
@@ -221,10 +240,10 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cursor.Close(context.Background())
-	orders := make([]models.Order, 0)
+	orders := make([]models.OrderMongo, 0)
 
 	for cursor.Next(context.Background()) {
-		var order models.Order
+		var order models.OrderMongo
 		err := cursor.Decode(&order) // decode similar to deserialize process.
 		if err != nil {
 			helper.GetError(err, w)
@@ -236,13 +255,82 @@ func getOrders(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(orders)
 }
 
+func getOrdersTotal(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	var orderInfo models.OrderInfo
+
+	orderCount, err := orderCollection.CountDocuments(context.TODO(), bson.M{"user_id": userId, "status": "filled"})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	orderInfo.CompletedOrderCount = orderCount
+
+	//Completed Orders Profit
+	cur, err := orderCollection.Find(context.TODO(), bson.M{"user_id": userId, "status": "filled"})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	defer cur.Close(context.TODO())
+	for cur.Next(context.TODO()) {
+		var order models.OrderMongo
+		err := cur.Decode(&order) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		orderInfo.OrderTotalAmount += (order.FilledQty * order.FilledAvgPrice)
+	}
+
+	//Completed Deals Profit
+	statuses := [2]string{"completed", "cancelled"}
+	cur, err = dealsCollection.Find(context.TODO(), bson.M{"user_id": userId, "status": bson.M{"$in": statuses}})
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	defer cur.Close(context.TODO())
+
+	for cur.Next(context.TODO()) {
+		var deal models.Deal
+		err := cur.Decode(&deal) // decode similar to deserialize process.
+		if err != nil {
+			helper.GetError(err, w)
+			return
+		}
+		orderInfo.CompletedDealsProfit += deal.ProfitValue
+	}
+
+	json.NewEncoder(w).Encode(orderInfo)
+}
+
 var exchangeCollection *mongo.Collection
 var orderCollection *mongo.Collection
 var assetsCollection *mongo.Collection
+var dealsCollection *mongo.Collection
 
 func init() {
 	//Connect to mongoDB with helper class
-	exchangeCollection, orderCollection, assetsCollection = helper.ConnectDB()
+	exchangeCollection, orderCollection, assetsCollection, dealsCollection = helper.ConnectDB()
 }
 
 func main() {
@@ -252,6 +340,7 @@ func main() {
 	// arrange our route
 	r.HandleFunc("/OrderService/api/v1/orders", placeOrder).Methods("POST")
 	r.HandleFunc("/OrderService/api/v1/orders", getOrders).Methods("GET")
+	r.HandleFunc("/OrderService/api/v1/orders/total", getOrdersTotal).Methods("GET")
 
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {

@@ -26,6 +26,13 @@ spec:
             name: user-authentication-service
             port:
               number: 443
+      - path: /UserService/api/v1/subscriptions
+        pathType: Prefix
+        backend:
+          service:
+            name: user-subscription-service
+            port:
+              number: 443
       - path: /StrategyService/api/v1/strategies
         pathType: Prefix
         backend:
@@ -41,6 +48,20 @@ spec:
             port:
               number: 443
       - path: /StrategyService/api/v1/accountinfo
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-strategy-service
+            port:
+              number: 443
+      - path: /StrategyService/api/v1/accountprofit
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-strategy-service
+            port:
+              number: 443
+      - path: /StrategyService/api/v1/strategyprofit
         pathType: Prefix
         backend:
           service:
@@ -73,5 +94,12 @@ spec:
         backend:
           service:
             name: rest-eventhistory-service
+            port:
+              number: 443
+      - path: /DashboardService/api/v1/portfolio
+        pathType: Prefix
+        backend:
+          service:
+            name: rest-dashboard-service
             port:
               number: 443
