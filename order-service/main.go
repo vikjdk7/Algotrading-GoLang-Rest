@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 
@@ -319,6 +320,8 @@ func getOrdersTotal(w http.ResponseWriter, r *http.Request) {
 		}
 		orderInfo.CompletedDealsProfit += deal.ProfitValue
 	}
+	orderInfo.OrderTotalAmount = math.Round(orderInfo.OrderTotalAmount*100) / 100
+	orderInfo.CompletedDealsProfit = math.Round(orderInfo.CompletedDealsProfit*100) / 100
 
 	json.NewEncoder(w).Encode(orderInfo)
 }
