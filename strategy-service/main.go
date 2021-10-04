@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -1049,7 +1050,7 @@ func getDealsForUser(w http.ResponseWriter, r *http.Request) {
 			helper.GetError(err, w)
 			return
 		}
-
+		deal.ProfitValue = math.Round(deal.ProfitValue*100) / 100
 		// add item our array
 		deals = append(deals, deal)
 	}
