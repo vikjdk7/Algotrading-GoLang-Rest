@@ -55,3 +55,13 @@ type User struct {
 	User_id           string             `json:"user_id"`
 	Stripe_customerId string             `json:"stripe_customer_id`
 }
+
+type CreateProductRequest struct {
+	Name              string  `json:"name"`
+	Description       string  `json:description`
+	Currency          string  `json:currency`
+	TrialPeriodDays   int64   `json:trial_period_days`
+	Interval          string  `json:"interval"`
+	IntervalCount     int64   `json:"interval_count"`
+	UnitAmountDecimal float64 `json:"unit_amount_decimal"`
+}

@@ -18,6 +18,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v72"
 	"github.com/stripe/stripe-go/v72/customer"
 	"github.com/stripe/stripe-go/v72/plan"
+	"github.com/stripe/stripe-go/v72/price"
 	"github.com/stripe/stripe-go/v72/product"
 )
 
@@ -101,6 +102,98 @@ func createCustomer(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(customer)
 }
 
+func createProduct(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customError models.ErrorString
+
+	var createProductRequest models.CreateProductRequest
+
+	// we decode our body request params
+	_ = json.NewDecoder(r.Body).Decode(&createProductRequest)
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	_, _, _, _, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	if createProductRequest.Name == "" {
+		customError.S = "Product Name cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	if createProductRequest.Currency == "" {
+		customError.S = "Currency cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	if createProductRequest.Interval == "" {
+		customError.S = "Interval cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	if createProductRequest.IntervalCount == 0 {
+		customError.S = "Interval Count cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+	if createProductRequest.UnitAmountDecimal == 0.0 {
+		customError.S = "Unit Amount Decimal Count cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	productParams := &stripe.ProductParams{
+		Active:      stripe.Bool(true),
+		Description: stripe.String(createProductRequest.Description),
+		Name:        stripe.String(createProductRequest.Name),
+		Type:        stripe.String("service"),
+	}
+
+	product, err := product.New(productParams)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	priceParams := &stripe.PriceParams{
+		Active:   stripe.Bool(true),
+		Currency: stripe.String(createProductRequest.Currency),
+		Product:  stripe.String(product.ID),
+		Recurring: &stripe.PriceRecurringParams{
+			UsageType:       stripe.String("licensed"),
+			TrialPeriodDays: stripe.Int64(createProductRequest.TrialPeriodDays),
+			Interval:        stripe.String(createProductRequest.Interval),
+			IntervalCount:   stripe.Int64(createProductRequest.IntervalCount),
+		},
+		UnitAmountDecimal: stripe.Float64(createProductRequest.UnitAmountDecimal * 100),
+		BillingScheme:     stripe.String("per_unit"),
+	}
+
+	priceResponse, err := price.New(priceParams)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+
+	p := &stripe.PriceParams{}
+	p.AddExpand("product")
+	priceObj, _ := price.Get(priceResponse.ID, p)
+
+	json.NewEncoder(w).Encode(priceObj)
+}
+
 var userSubscriptionCollection *mongo.Collection
 var userCollection *mongo.Collection
 
@@ -117,6 +210,7 @@ func main() {
 
 	r.HandleFunc("/UserService/api/v1/subscriptions/plans", getPlans).Methods("GET")
 	r.HandleFunc("/UserService/api/v1/subscriptions/customer", createCustomer).Methods("POST")
+	r.HandleFunc("/UserService/api/v1/subscriptions/product", createProduct).Methods("POST")
 
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {
