@@ -19,6 +19,7 @@ COPY --from=build_base /tmp/user-subscription-service/out/user-subscription-serv
 # Set Env Variable
 ENV MONGODB_URL=mongodb://mongoadmin:mongopassword@mongodb-0.database:27017/?authSource=admin
 ENV STRIPE_SECRET_KEY=sk_test_51JQnzHSCDB2sPH6iDRL16h6sTgKFdz2VLcpBuhrCulCff2wdobRkdL0eTtuS43uic35RzsxkPi0szZqGNOIyBHBD0037uG9JMI
+ENV STRIPE_REDIRECT_URL=https://dev.hedgina.com
 
 # Run the binary program produced by `go install`
 CMD ["/app/user-subscription-service"]

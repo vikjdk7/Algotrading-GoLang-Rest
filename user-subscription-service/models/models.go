@@ -43,17 +43,19 @@ type Plan struct {
 	StripeSubscriptionId string             `json:"stripe_subscription_id" bson:"stripe_subscription_id"`
 }*/
 type User struct {
-	ID                primitive.ObjectID `bson:"_id"`
-	First_name        *string            `json:"first_name" validate:"required,min=2,max=100"`
-	Last_name         *string            `json:"last_name" validate:"required,min=2,max=100"`
-	Password          *string            `json:"Password" validate:"required,min=6""`
-	Email             *string            `json:"email" validate:"email,required"`
-	Token             *string            `json:"token"`
-	Refresh_token     *string            `json:"refresh_token"`
-	Created_at        time.Time          `json:"created_at"`
-	Updated_at        time.Time          `json:"updated_at"`
-	User_id           string             `json:"user_id"`
-	Stripe_customerId string             `json:"stripe_customer_id`
+	ID                         primitive.ObjectID `bson:"_id"`
+	First_name                 *string            `json:"first_name" validate:"required,min=2,max=100"`
+	Last_name                  *string            `json:"last_name" validate:"required,min=2,max=100"`
+	Password                   *string            `json:"Password" validate:"required,min=6""`
+	Email                      *string            `json:"email" validate:"email,required"`
+	Token                      *string            `json:"token"`
+	Refresh_token              *string            `json:"refresh_token"`
+	Created_at                 time.Time          `json:"created_at"`
+	Updated_at                 time.Time          `json:"updated_at"`
+	User_id                    string             `json:"user_id"`
+	Stripe_customerId          string             `json:"stripe_customer_id`
+	Stripe_Subscription_status string             `json:"stripe_subscription_status"` //default:incomplete
+	Stripe_Plan                string             `json:"stripe_plan"`                //lookup key in stripe
 }
 
 type CreateProductRequest struct {

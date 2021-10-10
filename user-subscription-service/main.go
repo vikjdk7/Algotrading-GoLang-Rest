@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	stripe "github.com/stripe/stripe-go/v72"
+	portalsession "github.com/stripe/stripe-go/v72/billingportal/session"
 	"github.com/stripe/stripe-go/v72/customer"
 	"github.com/stripe/stripe-go/v72/plan"
 	"github.com/stripe/stripe-go/v72/price"
@@ -194,10 +195,55 @@ func createProduct(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(priceObj)
 }
 
+func createSession(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customError models.ErrorString
+
+	token := r.Header.Get("token")
+
+	if token == "" {
+		customError.S = "Token cannot be empty"
+		helper.GetError(&customError, w)
+		return
+	}
+
+	userId, _, _, _, errorMsg := middleware.ValdateIncomingToken(token)
+	if errorMsg != "" {
+		customError.S = errorMsg
+		helper.GetError(&customError, w)
+		return
+	}
+
+	var user models.User
+
+	err := userCollection.FindOne(context.TODO(), bson.M{"user_id": userId}).Decode(&user)
+	if err != nil {
+		helper.GetError(err, w)
+		return
+	}
+	if user.Stripe_customerId == "" {
+		customError.S = "Customer for this user does not exist in Stripe"
+		helper.GetError(&customError, w)
+		return
+	}
+	params := &stripe.BillingPortalSessionParams{
+		Customer:  stripe.String(user.Stripe_customerId),
+		ReturnURL: stripe.String(os.Getenv("STRIPE_REDIRECT_URL")),
+	}
+	s, err := portalsession.New(params)
+	if err != nil {
+		customError.S = "Error creating session for user"
+		helper.GetError(&customError, w)
+		return
+	}
+	http.Redirect(w, r, s.URL, 302)
+}
+
 var userSubscriptionCollection *mongo.Collection
 var userCollection *mongo.Collection
 
 func init() {
+	//os.Setenv("STRIPE_REDIRECT_URL", "https://dev.hedgina.com")
 	//os.Setenv("STRIPE_SECRET_KEY", "sk_test_51JOIw2SDRD0D8UlDIme5WMEW2DvovQ61J11S9ppwKum0yeclDtdR3Uo5C3rI7Z6xgZ6R8XXOHD3ctclkEqkhUDMT001y0NN0da")
 	stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
 	userSubscriptionCollection, userCollection = helper.ConnectDB()
@@ -211,6 +257,7 @@ func main() {
 	r.HandleFunc("/UserService/api/v1/subscriptions/plans", getPlans).Methods("GET")
 	r.HandleFunc("/UserService/api/v1/subscriptions/customer", createCustomer).Methods("POST")
 	r.HandleFunc("/UserService/api/v1/subscriptions/product", createProduct).Methods("POST")
+	r.HandleFunc("/UserService/api/v1/subscriptions/session", createSession).Methods("POST")
 
 	// set our port address
 	if err := http.ListenAndServe(":3000", r); err != nil {
